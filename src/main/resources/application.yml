@@ -1,0 +1,86 @@
+server:
+  port: 8080
+
+# ===================================================================
+# = GRPC SERVER CONFIGURATION
+# ===================================================================
+grpc:
+  server:
+    port: 9090
+    reflection-service-enabled: true
+
+spring:
+  application:
+    name: balance-service
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
+  datasource:
+    # Replace with your MySQL connection details
+    url: jdbc:mysql://localhost:13306/exchange_victor?characterEncoding=utf-8&zeroDateTimeBehavior=convertToNull&autoReconnect=true&rewriteBatchedStatements=true&allowMultiQueries=true&useSSL=false
+    username: exchange
+    password: abcd1234
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    type: com.zaxxer.hikari.HikariDataSource
+    hikari:
+      # --- Performance Tuning --- #
+      pool-name: BalanceServiceHikariPool
+      maximum-pool-size: 20 # Max number of connections
+      minimum-idle: 5 # Min number of idle connections
+      connection-timeout: 30000 # 30 seconds
+      idle-timeout: 600000 # 10 minutes
+      max-lifetime: 1800000 # 30 minutes
+
+  # ===================================================================
+  # = JPA/HIBERNATE CONFIGURATION
+  # ===================================================================
+  jpa:
+    # We let JPA provide the connection pool, but we don't use its DDL features.
+    hibernate:
+      # 'validate': checks if the schema matches entities at startup (if any exist).
+      # 'none': does nothing. User override to 'none'.
+      ddl-auto: none
+    # We don't need to show JPA-generated SQL because we write our own in JdbcTemplate.
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.MySQLDialect
+        format_sql: true
+        physical_naming_strategy: org.hibernate.boot.model.naming.CamelCaseToUnderscoresNamingStrategy
+        implicit_naming_strategy: org.springframework.boot.orm.jpa.hibernate.SpringImplicitNamingStrategy
+        enable_lazy_load_no_trans: true
+        jdbc:
+          time_zone: UTC
+          batch_size: 1000
+        temp:
+          use_jdbc_metadata_defaults: false
+        order_updates: true
+
+  # ===================================================================
+  # = KAFKA CONFIGURATION
+  # ===================================================================
+  kafka:
+    bootstrap-servers: localhost:9094
+    properties:
+      security:
+        protocol: PLAINTEXT
+      sasl:
+        mechanism:
+        jaas:
+          config:
+    consumer:
+      max-poll-records: 100
+      auto-offset-reset: earliest
+
+# ===================================================================
+# = CUSTOM APP CONFIGURATION
+# ===================================================================
+app:
+  kafka:
+    balance-transfer:
+      topic: t.balance-service.balance-transfer
+      group: g.balance-service.balance-transfer
+
+snowflake:
+  worker-id: 1
+  datacenter-id: 1
+

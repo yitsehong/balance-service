@@ -1,0 +1,35 @@
+syntax = "proto3";
+
+option java_multiple_files = true;
+option java_package = "io.xrex.grpc";
+option java_outer_classname = "TransferProto";
+
+package balanceservice;
+
+// The transfer service definition.
+service TransferService {
+  // Creates a new transfer
+  rpc Transfer (TransferRequest) returns (TransferResponse) {}
+}
+
+// The request message containing the transfer details.
+message TransferRequest {
+  int32 from_uid = 1;
+  int32 from_type = 2;
+  int32 to_uid = 3;
+  int32 to_type = 4;
+  string amount = 5;
+  string scene = 6;
+  string meta = 7;
+  string refType = 8;
+  int64 refId = 9;
+  int32 opUid = 10;
+  string opIp = 11;
+}
+
+// The response message containing the transaction ID.
+message TransferResponse {
+  bool success = 1;
+  string event_key = 2;
+  string message = 3;
+}
