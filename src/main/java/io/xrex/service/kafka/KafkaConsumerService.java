@@ -16,7 +16,7 @@ import java.util.List;
 @RequiredArgsConstructor
 public class KafkaConsumerService {
 
-    private static final int DB_BATCH_SIZE = 200;
+    private static final int DB_BATCH_SIZE = 500;
     private final TransferService transferService;
 
     @KafkaListener(topics = "${app.kafka.balance-transfer.topic}", groupId = "${app.kafka.balance-transfer.group}", containerFactory = "consumerFactory")
