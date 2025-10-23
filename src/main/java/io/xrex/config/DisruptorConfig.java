@@ -21,20 +21,16 @@ public class DisruptorConfig {
 
     @Bean
     public RingBuffer<TransferRingBufferEvent> ringBuffer(BalanceUpdateEventHandler balanceUpdateEventHandler) {
-        // Use a dedicated single thread for the core balance update logic to ensure sequential processing
-        // and maximize CPU cache efficiency.
+        // Use a dedicated single thread for the core balance update logic to ensure sequential processing and maximize CPU cache efficiency.
         ThreadFactory threadFactory = Executors.defaultThreadFactory();
         Disruptor<TransferRingBufferEvent> disruptor = new Disruptor<>(
-                new TransferEventFactory(),
-                RING_BUFFER_SIZE,
-                threadFactory,
+                new TransferEventFactory(), RING_BUFFER_SIZE, threadFactory,
                 ProducerType.MULTI, // Multiple gRPC threads can produce events
                 new BlockingWaitStrategy() // A balanced wait strategy
         );
 
         // Set the single event handler that contains the core logic
         disruptor.handleEventsWith(balanceUpdateEventHandler);
-
         // Start the Disruptor and return the RingBuffer for injection
         return disruptor.start();
     }

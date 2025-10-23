@@ -1,6 +1,5 @@
 package io.xrex.config;
 
-import io.xrex.grpc.TransferRequest;
 import io.xrex.model.dto.event.TransactionEventDto;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.kafka.clients.CommonClientConfigs;
@@ -56,35 +55,6 @@ public class KafkaConsumerConfig {
         }
 
         ConcurrentKafkaListenerContainerFactory<String, TransactionEventDto> factory = new ConcurrentKafkaListenerContainerFactory<>();
-        factory.setConsumerFactory(new DefaultKafkaConsumerFactory<>(props));
-        factory.setBatchListener(true); // Enable batch listening
-        factory.getContainerProperties().setAckMode(ContainerProperties.AckMode.MANUAL);
-        factory.setCommonErrorHandler(new DefaultErrorHandler(new FixedBackOff(1000L, 3L)));
-        return factory;
-    }
-
-    @Bean
-    public ConcurrentKafkaListenerContainerFactory<String, String> testFactory() {
-        Map<String, Object> props = new HashMap<>();
-        props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
-        props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
-        props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
-//        props.put(JsonDeserializer.TRUSTED_PACKAGES, "*");
-//        props.put(JsonDeserializer.VALUE_DEFAULT_TYPE, TransferRequest.class.getName());
-//        props.put(JsonDeserializer.USE_TYPE_INFO_HEADERS, true);
-//        props.put(JsonDeserializer.REMOVE_TYPE_INFO_HEADERS, false);
-
-        props.put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, maxPollRecords);
-        props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "latest");
-        props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
-
-        if (StringUtils.isNotBlank(saslJaasConfig)) {
-            props.put(CommonClientConfigs.SECURITY_PROTOCOL_CONFIG, securityProtocol);
-            props.put(SaslConfigs.SASL_MECHANISM, saslMechanism);
-            props.put(SaslConfigs.SASL_JAAS_CONFIG, saslJaasConfig);
-        }
-
-        ConcurrentKafkaListenerContainerFactory<String, String> factory = new ConcurrentKafkaListenerContainerFactory<>();
         factory.setConsumerFactory(new DefaultKafkaConsumerFactory<>(props));
         factory.setBatchListener(true); // Enable batch listening
         factory.getContainerProperties().setAckMode(ContainerProperties.AckMode.MANUAL);

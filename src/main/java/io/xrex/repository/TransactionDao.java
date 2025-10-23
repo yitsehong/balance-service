@@ -28,7 +28,6 @@ public class TransactionDao {
             @Override
             public void setValues(PreparedStatement ps, int i) throws SQLException {
                 TransactionEntity transaction = transactions.get(i);
-                transaction.fingerprint(); // Ensure fingerprint is calculated before insertion
 
                 ps.setLong(1, transaction.getId());
                 ps.setInt(2, transaction.getFromUid());

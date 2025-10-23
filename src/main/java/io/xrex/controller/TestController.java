@@ -27,7 +27,7 @@ public class TestController {
         StreamObserver<TransferResponse> responseObserver = new StreamObserver<>() {
             @Override
             public void onNext(TransferResponse value) {
-                log.info("Test transfer accepted: {}", value.getEventKey());
+//                log.info("Test transfer accepted: {}", value.getEventKey());
             }
 
             @Override
@@ -37,7 +37,7 @@ public class TestController {
 
             @Override
             public void onCompleted() {
-                log.info("Test transfer stream completed.");
+//                log.info("Test transfer stream completed.");
             }
         };
 

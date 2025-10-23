@@ -1,6 +1,9 @@
 package io.xrex.service.kafka;
 
+import io.xrex.model.dto.AccountIdDto;
 import io.xrex.model.dto.event.TransactionEventDto;
+import io.xrex.model.entity.TransactionEntity;
+import io.xrex.service.LedgerBookService;
 import io.xrex.service.TransferService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -9,15 +12,19 @@ import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.support.Acknowledgment;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class KafkaConsumerService {
 
-    private static final int DB_BATCH_SIZE = 500;
     private final TransferService transferService;
+    private final LedgerBookService ledgerBookService;
 
     @KafkaListener(topics = "${app.kafka.balance-transfer.topic}", groupId = "${app.kafka.balance-transfer.group}", containerFactory = "consumerFactory")
     public void consume(List<ConsumerRecord<String, TransactionEventDto>> records, Acknowledgment acknowledgment) {
@@ -27,25 +34,28 @@ public class KafkaConsumerService {
         }
 
         try {
-            List<TransactionEventDto> allEvents = records.stream().map(ConsumerRecord::value).toList();
-            int totalSize = allEvents.size();
+            long time1 = System.currentTimeMillis();
+            List<TransactionEventDto> events = records.stream().map(ConsumerRecord::value).toList();
+            ledgerBookService.produceLedgerBook(events);
+            long time2 = System.currentTimeMillis();
 
-            for (int i = 0; i < totalSize; i += DB_BATCH_SIZE) {
-                int end = Math.min(i + DB_BATCH_SIZE, totalSize);
-                List<TransactionEventDto> miniBatch = allEvents.subList(i, end);
+            // Step 1: Aggregate balance changes for each account
+            Map<AccountIdDto, BigDecimal> balanceAdjustments = events.stream()
+                    .flatMap(event -> Stream.of(
+                            Map.entry(new AccountIdDto(event.getFrom().getChainupId(), event.getFrom().getAssetType()), event.getFrom().getAmount()),
+                            Map.entry(new AccountIdDto(event.getTo().getChainupId(), event.getTo().getAssetType()), event.getTo().getAmount())
+                    )).collect(Collectors.groupingBy(Map.Entry::getKey, Collectors.reducing(BigDecimal.ZERO, Map.Entry::getValue, BigDecimal::add)));
+            // Step 2: Collect all individual ledger and transaction records for batch insertion
+            List<TransactionEntity> transactions = events.stream().map(transferService::createTransactionEntityFromEvent).toList();
 
-                try {
-                    // Each mini-batch is processed in its own transaction via batchTransfer
-                    transferService.batchTransfer(miniBatch);
-                    log.debug("Successfully persisted mini-batch of size: {}", miniBatch.size());
-                } catch (Exception e) {
-                    // Log the error for the specific mini-batch and continue with the next
-                    // This enhances resilience, preventing one bad batch from stopping the entire poll.
-                    log.error("Failed to process a mini-batch of size {}. Error: {}", miniBatch.size(), e.getMessage(), e);
-                    // TODO: Consider sending the failed mini-batch to a dead-letter queue for manual inspection.
-                }
-            }
-
+            // Each mini-batch is processed in its own transaction via batchTransfer
+            transferService.batchTransfer(balanceAdjustments, null, transactions);
+            log.info("Successfully persisted of event size={}, balanceAdjustments size={}, time1={}ms, time2={}ms", events.size(), balanceAdjustments.size(), time2 - time1, System.currentTimeMillis() - time2);
+        } catch (Exception e) {
+            // Log the error for the specific mini-batch and continue with the next
+            // This enhances resilience, preventing one bad batch from stopping the entire poll.
+            log.error("Failed to process persisted. Error: {}", e.getMessage(), e);
+            // TODO: Consider sending the failed mini-batch to a dead-letter queue for manual inspection.
         } finally {
             // Acknowledge the entire polled batch, even if some mini-batches failed.
             // The failed ones are logged for later handling.

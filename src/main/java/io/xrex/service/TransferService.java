@@ -14,8 +14,6 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 @Slf4j
 @Service
@@ -39,29 +37,17 @@ public class TransferService {
     }
 
     @Transactional
-    public void batchTransfer(List<TransactionEventDto> events) {
-        if (events == null || events.isEmpty()) {
-            return;
+    public void batchTransfer(Map<AccountIdDto, BigDecimal> balanceAdjustments,
+                              List<LedgerBookEntity> ledgerBooks,
+                              List<TransactionEntity> transactions) {
+        // Step 1: Apply the aggregated balance updates to the account table in a single batch operation.
+        accountService.batchUpdateBalances(balanceAdjustments);
+        // Step 2: Batch insert all records using high-performance JdbcTemplate
+        if (ledgerBooks != null) {
+
         }
 
-        // Step 1: Aggregate balance changes for each account
-        Map<AccountIdDto, BigDecimal> balanceAdjustments = events.stream()
-                .flatMap(event -> Stream.of(
-                        Map.entry(new AccountIdDto(event.getFrom().getChainupId(), event.getFrom().getAssetType()), event.getFrom().getAmount()),
-                        Map.entry(new AccountIdDto(event.getTo().getChainupId(), event.getTo().getAssetType()), event.getTo().getAmount())
-                ))
-                .collect(Collectors.groupingBy(Map.Entry::getKey, Collectors.reducing(BigDecimal.ZERO, Map.Entry::getValue, BigDecimal::add)));
-
-        // Step 2: Apply the aggregated balance updates to the account table in a single batch operation.
-        accountService.batchUpdateBalances(balanceAdjustments);
-
-        // Step 3: Collect all individual ledger and transaction records for batch insertion
-        List<LedgerBookEntity> allLedgerBooks = events.stream().flatMap(event -> Stream.of(event.getFrom(), event.getTo())).toList();
-        List<TransactionEntity> allTransactions = events.stream().map(this::createTransactionEntityFromEvent).toList();
-
-        // Step 4: Batch insert all records using high-performance JdbcTemplate
-        ledgerBookDao.batchInsert(allLedgerBooks);
-        transactionDao.batchInsert(allTransactions);
+        transactionDao.batchInsert(transactions);
     }
 
     private void processSingleTransfer(TransactionEventDto event) {
@@ -78,7 +64,7 @@ public class TransferService {
         transactionDao.batchInsert(List.of(createTransactionEntityFromEvent(event)));
     }
 
-    private TransactionEntity createTransactionEntityFromEvent(TransactionEventDto event) {
+    public TransactionEntity createTransactionEntityFromEvent(TransactionEventDto event) {
         long id = Long.parseLong(event.getEventKey());
         LedgerBookEntity fromLedger = event.getFrom();
         LedgerBookEntity toLedger = event.getTo();
