@@ -12,7 +12,6 @@ import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -20,10 +19,9 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class AccountDao {
 
-    private final JdbcTemplate jdbcTemplate;
-
     private static final String BATCH_UPDATE_SQL = "UPDATE account SET balance = balance + ?, mtime = ? WHERE uid = ? AND type = ?";
     private static final String BATCH_INSERT_SQL = "INSERT INTO account (uid, type, balance, tag, ctime, mtime) VALUES (?, ?, ?, ?, ?, ?)";
+    private final JdbcTemplate jdbcTemplate;
 
     public int[] batchUpdateBalances(List<Map.Entry<AccountIdDto, BigDecimal>> adjustmentsList) {
         if (adjustmentsList == null || adjustmentsList.isEmpty()) {

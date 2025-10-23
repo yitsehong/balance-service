@@ -15,13 +15,12 @@ import java.util.List;
 @RequiredArgsConstructor
 public class TransactionDao {
 
-    private final JdbcTemplate jdbcTemplate;
-
     private static final String BATCH_INSERT_SQL = """
             INSERT INTO transaction(id, from_uid, from_type, from_balance, to_uid, to_type, to_balance, amount,
             meta, scene, ref_type, ref_id, op_uid, op_ip, ctime, mtime, fingerprint) 
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """;
+    private final JdbcTemplate jdbcTemplate;
 
     public void batchInsert(List<TransactionEntity> transactions) {
         jdbcTemplate.batchUpdate(BATCH_INSERT_SQL, new BatchPreparedStatementSetter() {

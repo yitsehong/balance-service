@@ -27,13 +27,12 @@ import java.util.concurrent.ConcurrentHashMap;
 @Service
 public class InMemoryBalanceStore {
 
+    private final AccountRepository accountRepository;
+    private final ConfigAccountTypeRepository configAccountTypeRepository;
     @Getter
     private ConcurrentHashMap<AccountIdDto, BalanceDto> balanceMap;
     @Getter
     private ConcurrentHashMap<Integer, ConfigAccountTypeEntity> configAccountTypeMap;
-
-    private final AccountRepository accountRepository;
-    private final ConfigAccountTypeRepository configAccountTypeRepository;
 
     public InMemoryBalanceStore(AccountRepository accountRepository, ConfigAccountTypeRepository configAccountTypeRepository) {
         this.accountRepository = accountRepository;
@@ -94,7 +93,6 @@ public class InMemoryBalanceStore {
      * @param event
      * @param fromAccountId
      * @param toAccountId
-     *
      * @return TransactionEventDto.
      */
     public synchronized TransactionEventDto processTransfer(TransferRingBufferEvent event,

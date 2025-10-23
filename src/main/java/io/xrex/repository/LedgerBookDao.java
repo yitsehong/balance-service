@@ -15,13 +15,12 @@ import java.util.List;
 @RequiredArgsConstructor
 public class LedgerBookDao {
 
-    private final JdbcTemplate jdbcTemplate;
-
     private static final String BATCH_INSERT_SQL = """
             INSERT INTO ledger_book(idempotency_key, chainup_id, asset_type, coin_symbol, account_tag, amount, before_balance, after_balance, 
             scene, ref_type, ref_id, created_time, updated_time)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """;
+    private final JdbcTemplate jdbcTemplate;
 
     public void batchInsert(List<LedgerBookEntity> ledgerBooks) {
         jdbcTemplate.batchUpdate(BATCH_INSERT_SQL, new BatchPreparedStatementSetter() {

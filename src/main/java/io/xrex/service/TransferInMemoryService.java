@@ -28,7 +28,7 @@ public class TransferInMemoryService {
      * This method is non-blocking. It publishes the request to the Disruptor RingBuffer
      * and uses a CompletableFuture callback to send the response via the StreamObserver.
      *
-     * @param request The gRPC transfer request.
+     * @param request          The gRPC transfer request.
      * @param responseObserver The observer to send the response to.
      */
     public void transfer(TransferRequest request, StreamObserver<TransferResponse> responseObserver) {

@@ -32,7 +32,7 @@ public class KafkaConsumerService {
             acknowledgment.acknowledge();
             return;
         }
-
+        // TODO avoid duplicated
         try {
             long time1 = System.currentTimeMillis();
             List<TransactionEventDto> events = records.stream().map(ConsumerRecord::value).toList();
