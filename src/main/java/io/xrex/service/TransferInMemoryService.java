@@ -4,7 +4,7 @@ import com.lmax.disruptor.RingBuffer;
 import io.grpc.Status;
 import io.grpc.stub.StreamObserver;
 import io.xrex.event.disruptor.TransferRingBufferEvent;
-import io.xrex.exception.InsufficientFundsException;
+import io.xrex.grpc.TransferListRequest;
 import io.xrex.grpc.TransferRequest;
 import io.xrex.grpc.TransferResponse;
 import io.xrex.util.SnowflakeIdGenerator;
@@ -13,7 +13,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -24,19 +26,49 @@ public class TransferInMemoryService {
     private final SnowflakeIdGenerator snowflakeIdGenerator;
 
     /**
-     * Asynchronously processes a transfer request.
-     * This method is non-blocking. It publishes the request to the Disruptor RingBuffer
-     * and uses a CompletableFuture callback to send the response via the StreamObserver.
+     * Asynchronously processes a list of transfer requests.
+     * This method is non-blocking. It publishes each request to the Disruptor RingBuffer
+     * and uses CompletableFuture.allOf() to wait for all transfers to complete before sending a single response.
      *
-     * @param request          The gRPC transfer request.
+     * @param request          The gRPC request containing a list of transfers.
      * @param responseObserver The observer to send the response to.
      */
-    public void transfer(TransferRequest request, StreamObserver<TransferResponse> responseObserver) {
-        // The future now completes with the eventKey (String) on success
+    public void transfer(TransferListRequest request, StreamObserver<TransferResponse> responseObserver) {
+        List<CompletableFuture<String>> futures = request.getRequestsList().stream()
+                .map(this::processSingleTransfer).toList();
+
+        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
+                .whenComplete((voidResult, throwable) -> {
+                    if (throwable != null) {
+                        log.error("Error processing batch transfer", throwable);
+                        Status status = Status.INTERNAL.withDescription("Internal error: " + throwable.getMessage());
+                        responseObserver.onError(status.asRuntimeException());
+                    } else {
+                        List<String> eventKeys = futures.stream()
+                                .map(CompletableFuture::join)
+                                .collect(Collectors.toList());
+
+                        TransferResponse response = TransferResponse.newBuilder()
+                                .setSuccess(true)
+                                .addAllEventKey(eventKeys)
+                                .setMessage("All transfers accepted for processing.")
+                                .build();
+                        responseObserver.onNext(response);
+                        responseObserver.onCompleted();
+                    }
+                });
+    }
+
+    /**
+     * Processes a single transfer request and returns a CompletableFuture.
+     *
+     * @param request The gRPC transfer request.
+     * @return A CompletableFuture that will be completed with the event key or an exception.
+     */
+    private CompletableFuture<String> processSingleTransfer(TransferRequest request) {
         final CompletableFuture<String> future = new CompletableFuture<>();
         final String eventKey = snowflakeIdGenerator.nextIdString();
 
-        // Publish the event to the Disruptor
         long sequence = ringBuffer.next();
         try {
             TransferRingBufferEvent event = ringBuffer.get(sequence);
@@ -57,29 +89,7 @@ public class TransferInMemoryService {
             ringBuffer.publish(sequence);
         }
 
-        // Register a non-blocking callback to handle the result
-        future.whenComplete((resultEventKey, throwable) -> {
-            if (throwable != null) {
-                // An exception occurred during processing
-                log.error("Event [{}] failed processing", eventKey, throwable);
-                Status status;
-                if (throwable instanceof InsufficientFundsException) {
-                    status = Status.FAILED_PRECONDITION.withDescription(throwable.getMessage());
-                } else {
-                    status = Status.INTERNAL.withDescription("Internal error: " + throwable.getMessage());
-                }
-                responseObserver.onError(status.asRuntimeException());
-            } else {
-                // In-memory processing was successful
-                TransferResponse response = TransferResponse.newBuilder()
-                        .setSuccess(true)
-                        .setEventKey(resultEventKey)
-                        .setMessage("Transfer accepted for processing.")
-                        .build();
-                responseObserver.onNext(response);
-                responseObserver.onCompleted();
-            }
-        });
+        return future;
     }
 }
 

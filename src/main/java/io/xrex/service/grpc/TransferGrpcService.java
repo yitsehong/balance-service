@@ -1,7 +1,7 @@
 package io.xrex.service.grpc;
 
 import io.grpc.stub.StreamObserver;
-import io.xrex.grpc.TransferRequest;
+import io.xrex.grpc.TransferListRequest;
 import io.xrex.grpc.TransferResponse;
 import io.xrex.grpc.TransferServiceGrpc;
 import io.xrex.service.TransferInMemoryService;
@@ -19,7 +19,7 @@ public class TransferGrpcService extends TransferServiceGrpc.TransferServiceImpl
     }
 
     @Override
-    public void transfer(TransferRequest request, StreamObserver<TransferResponse> responseObserver) {
+    public void transfer(TransferListRequest request, StreamObserver<TransferResponse> responseObserver) {
         // The underlying service now handles the asynchronous response via the observer.
         transferInMemoryService.transfer(request, responseObserver);
     }

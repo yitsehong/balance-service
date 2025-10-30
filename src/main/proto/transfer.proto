@@ -9,7 +9,12 @@ package balanceservice;
 // The transfer service definition.
 service TransferService {
   // Creates a new transfer
-  rpc Transfer (TransferRequest) returns (TransferResponse) {}
+  rpc Transfer (TransferListRequest) returns (TransferResponse) {}
+}
+
+// The request message containing the list of transfer details.
+message TransferListRequest {
+  repeated TransferRequest requests = 1;
 }
 
 // The request message containing the transfer details.
@@ -30,6 +35,6 @@ message TransferRequest {
 // The response message containing the transaction ID.
 message TransferResponse {
   bool success = 1;
-  string event_key = 2;
+  repeated string event_key = 2;
   string message = 3;
 }
