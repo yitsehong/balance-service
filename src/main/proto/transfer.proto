@@ -21,15 +21,17 @@ message TransferListRequest {
 message TransferRequest {
   int32 from_uid = 1;
   int32 from_type = 2;
-  int32 to_uid = 3;
-  int32 to_type = 4;
-  string amount = 5;
-  string scene = 6;
-  string meta = 7;
-  string refType = 8;
-  int64 refId = 9;
-  int32 opUid = 10;
-  string opIp = 11;
+  string from_sub_type = 3;
+  int32 to_uid = 4;
+  int32 to_type = 5;
+  string to_sub_type = 6;
+  string amount = 7;
+  string scene = 8;
+  string meta = 9;
+  string refType = 10;
+  int64 refId = 11;
+  int32 opUid = 12;
+  string opIp = 13;
 }
 
 // The response message containing the transaction ID.
