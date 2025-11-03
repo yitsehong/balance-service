@@ -1,5 +1,7 @@
 package io.xrex.service;
 
+import com.github.benmanes.caffeine.cache.Caffeine;
+import com.github.benmanes.caffeine.cache.LoadingCache;
 import io.xrex.event.disruptor.TransferRingBufferEvent;
 import io.xrex.exception.InsufficientFundsException;
 import io.xrex.model.dto.AccountIdDto;
@@ -10,91 +12,92 @@ import io.xrex.model.entity.ConfigAccountTypeEntity;
 import io.xrex.model.entity.LedgerBookEntity;
 import io.xrex.repository.AccountRepository;
 import io.xrex.repository.ConfigAccountTypeRepository;
-import lombok.Getter;
+import io.xrex.repository.RocksDBBalanceRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
-import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 
-/**
- * An in-memory store for managing user balances.
- * This provides a fast, thread-safe way to access and update balances without database locks.
- */
 @Slf4j
 @Service
 public class InMemoryBalanceStore {
 
-    private final AccountRepository accountRepository;
+    private final RocksDBBalanceRepository rocksDBBalanceRepository;
+    private final AccountRepository accountRepository; 
     private final ConfigAccountTypeRepository configAccountTypeRepository;
-    @Getter
-    private ConcurrentHashMap<AccountIdDto, BalanceDto> balanceMap;
-    @Getter
-    private ConcurrentHashMap<Integer, ConfigAccountTypeEntity> configAccountTypeMap;
 
-    public InMemoryBalanceStore(AccountRepository accountRepository, ConfigAccountTypeRepository configAccountTypeRepository) {
+    private final LoadingCache<AccountIdDto, BalanceDto> balanceCache;
+    // Keep a cache for config types as it's small and frequently accessed
+    private final ConcurrentHashMap<Integer, ConfigAccountTypeEntity> configAccountTypeMap;
+
+
+    public InMemoryBalanceStore(RocksDBBalanceRepository rocksDBBalanceRepository,
+                              AccountRepository accountRepository,
+                              ConfigAccountTypeRepository configAccountTypeRepository) {
+        this.rocksDBBalanceRepository = rocksDBBalanceRepository;
         this.accountRepository = accountRepository;
         this.configAccountTypeRepository = configAccountTypeRepository;
+
+        // Load all config types into memory at startup
+        this.configAccountTypeMap = new ConcurrentHashMap<>();
+        configAccountTypeRepository.findAll().forEach(config -> configAccountTypeMap.put(config.getAssetType(), config));
+
+        this.balanceCache = Caffeine.newBuilder()
+                .maximumSize(1_000_000) // Max 1 million balances in memory
+                .expireAfterAccess(1, TimeUnit.HOURS) // Evict if not accessed for 1 hour
+                .build(this::loadBalance); // Use a method reference for the loader
     }
 
-    public void loadInitialBalances() {
-        log.info("Starting to load all account balances into memory...");
-        List<AccountEntity> accounts = accountRepository.findAll();
-        balanceMap = new ConcurrentHashMap<>(accounts.size());
+    private BalanceDto loadBalance(AccountIdDto accountId) {
+        log.debug("Cache miss for account: {}. Loading from persistent store.", accountId);
 
-        List<ConfigAccountTypeEntity> configAccountTypes = configAccountTypeRepository.findAll();
-        configAccountTypeMap = new ConcurrentHashMap<>(configAccountTypes.size());
-        for (ConfigAccountTypeEntity configAccountType : configAccountTypes) {
-            configAccountTypeMap.put(configAccountType.getAssetType(), configAccountType);
+        // 1. Try to load from RocksDB first
+        Optional<BalanceDto> balanceFromRocks = rocksDBBalanceRepository.findById(accountId);
+        if (balanceFromRocks.isPresent()) {
+            log.debug("Loaded balance for {} from RocksDB.", accountId);
+            return balanceFromRocks.get();
         }
-        for (AccountEntity account : accounts) {
-            ConfigAccountTypeEntity configAccountType = configAccountTypeMap.get(account.getType());
-            AccountIdDto accountIdDto = new AccountIdDto(account.getUid(), account.getType());
-            setBalance(accountIdDto, configAccountType.getCoinSymbol(), account.getBalance(), configAccountType.getTag());
+
+        // 2. If not in RocksDB, fall back to the primary database (e.g., MySQL)
+        Optional<AccountEntity> accountFromDb = Optional.ofNullable(accountRepository.findByUidAndType(accountId.chainupId(), accountId.assetType()));
+        ConfigAccountTypeEntity config = getConfigAccountType(accountId.assetType());
+
+        BalanceDto balanceDto;
+        if (accountFromDb.isPresent()) {
+            AccountEntity account = accountFromDb.get();
+            log.debug("Loaded balance for {} from primary DB.", accountId);
+            balanceDto = new BalanceDto(accountId, config.getCoinSymbol(), account.getBalance(), config.getTag());
+        } else {
+            // 3. If it doesn't exist anywhere, create a new zero-balance account
+            log.debug("Account {} not found anywhere. Creating a new zero-balance DTO.", accountId);
+            balanceDto = new BalanceDto(accountId, config.getCoinSymbol(), BigDecimal.ZERO, config.getTag());
         }
-        log.info("Finished loading {} account balances into memory.", accounts.size());
+
+        // 4. Save the newly loaded/created balance to RocksDB for future requests
+        rocksDBBalanceRepository.save(balanceDto);
+        log.debug("Saved newly loaded balance for {} to RocksDB.", accountId);
+
+        return balanceDto;
     }
 
-    /**
-     * Retrieves a balance for a given account ID. If it doesn't exist, it creates a new one with a zero balance.
-     *
-     * @param accountIdDto The composite account ID.
-     * @return The Balance object.
-     */
+    public ConfigAccountTypeEntity getConfigAccountType(int assetType) {
+        return configAccountTypeMap.computeIfAbsent(assetType, configAccountTypeRepository::findByAssetType);
+    }
+
     public BalanceDto getBalance(AccountIdDto accountIdDto) {
-        ConfigAccountTypeEntity configAccountType = configAccountTypeMap.get(accountIdDto.assetType());
-        if (configAccountType == null) {
-            configAccountType = configAccountTypeRepository.findByAssetType(accountIdDto.assetType());
-            configAccountTypeMap.put(accountIdDto.assetType(), configAccountType);
-        }
-        final String coinSymbol = configAccountType.getCoinSymbol();
-        final String accountTag = configAccountType.getTag();
-        return balanceMap.computeIfAbsent(accountIdDto, id -> new BalanceDto(id, coinSymbol, BigDecimal.ZERO, accountTag));
+        return balanceCache.get(accountIdDto);
     }
 
-    /**
-     * A method to initialize or update a balance, for example, when loading data from a database at startup.
-     *
-     * @param accountIdDto The composite account ID.
-     * @param amount       The initial amount.
-     */
     public void setBalance(AccountIdDto accountIdDto, String coinSymbol, BigDecimal amount, String accountTag) {
-        BalanceDto balanceDto = getBalance(accountIdDto);
-        balanceDto.setAmount(amount);
-        balanceDto.setCoinSymbol(coinSymbol);
-        balanceDto.setAccountTag(accountTag);
+        BalanceDto balanceDto = new BalanceDto(accountIdDto, coinSymbol, amount, accountTag);
+        balanceCache.put(accountIdDto, balanceDto);
+        rocksDBBalanceRepository.save(balanceDto);
     }
 
-    /**
-     * Processes a transfer between two accounts in a thread-safe manner.
-     *
-     * @param event
-     * @param fromAccountId
-     * @param toAccountId
-     * @return TransactionEventDto.
-     */
     public synchronized TransactionEventDto processTransfer(TransferRingBufferEvent event,
                                                             AccountIdDto fromAccountId, AccountIdDto toAccountId) {
         String eventKey = event.getEventKey();
@@ -103,25 +106,36 @@ public class InMemoryBalanceStore {
         String refType = event.getRefType();
         Long refId = event.getRefId();
 
+        // Get balances from the cache
         BalanceDto fromAccountBalance = getBalance(fromAccountId);
-        boolean ignoreCheck = fromAccountId.chainupId() == 1;
+        BalanceDto toAccountBalance = getBalance(toAccountId);
+
+        // Check for sufficient funds
+        boolean ignoreCheck = fromAccountId.chainupId() == 1; // Assuming chainupId 1 is a system/internal account
         if (!ignoreCheck && fromAccountBalance.getAmount().compareTo(amount) < 0) {
             log.error("Transaction [{}]: Insufficient funds for user {}. Required: {}, Available: {}",
                     eventKey, fromAccountId.chainupId(), amount, fromAccountBalance.getAmount());
-            throw new InsufficientFundsException(fromAccountId.chainupId() + "has insufficient funds, amount=" + amount + ", now=" + fromAccountBalance.getAmount());
+            throw new InsufficientFundsException(fromAccountId.chainupId() + " has insufficient funds, amount=" + amount + ", now=" + fromAccountBalance.getAmount());
         }
 
-        BalanceDto toAccountBalance = getBalance(toAccountId);
-
+        // Calculate new balances
         BigDecimal fromBeforeBalance = fromAccountBalance.getAmount();
         BigDecimal fromAfterBalance = fromBeforeBalance.subtract(amount);
-
         BigDecimal toBeforeBalance = toAccountBalance.getAmount();
         BigDecimal toAfterBalance = toBeforeBalance.add(amount);
-        // Perform the transfer
+
+        // Update balance objects
         fromAccountBalance.setAmount(fromAfterBalance);
         toAccountBalance.setAmount(toAfterBalance);
 
+        // Write the updated balances back to the cache AND to RocksDB (write-through)
+        balanceCache.put(fromAccountId, fromAccountBalance);
+        rocksDBBalanceRepository.save(fromAccountId, fromAccountBalance);
+
+        balanceCache.put(toAccountId, toAccountBalance);
+        rocksDBBalanceRepository.save(toAccountId, toAccountBalance);
+
+        // Create ledger book entries (this part remains the same)
         LocalDateTime now = LocalDateTime.now();
         LedgerBookEntity from = LedgerBookEntity.builder()
                 .idempotencyKey(eventKey)
@@ -144,6 +158,7 @@ public class InMemoryBalanceStore {
                 .accountTag(toAccountBalance.getAccountTag())
                 .scene(scene).refType(refType).refId(refId)
                 .createdTime(now).updatedTime(now).build();
+
         return TransactionEventDto.builder().eventKey(eventKey)
                 .from(from).to(to).meta(event.getMeta()).opUid(event.getOpUid()).opIp(event.getOpIp()).build();
     }

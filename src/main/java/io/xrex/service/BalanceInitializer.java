@@ -15,7 +15,7 @@ public class BalanceInitializer implements ApplicationListener<ApplicationReadyE
 
     @Override
     public void onApplicationEvent(ApplicationReadyEvent event) {
-        System.out.println("Application started, loading initial balances...");
-        inMemoryBalanceStore.loadInitialBalances();
+        System.out.println("Application started. Balances will be loaded on-demand.");
+        // inMemoryBalanceStore.loadInitialBalances(); // This is no longer needed.
     }
 }

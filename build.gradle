@@ -34,6 +34,12 @@ dependencies {
     // Disruptor
     implementation 'com.lmax:disruptor:4.0.0'
 
+    // Caffeine Cache
+    implementation 'com.github.ben-manes.caffeine:caffeine:3.1.8'
+
+    // RocksDB
+    implementation 'org.rocksdb:rocksdbjni:8.11.3'
+
     // Persistence
     implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
     implementation 'org.springframework.boot:spring-boot-starter-jdbc'
@@ -46,6 +52,12 @@ dependencies {
     annotationProcessor 'org.projectlombok:lombok:1.18.42'
     implementation 'org.apache.commons:commons-lang3'
     implementation 'com.alibaba.fastjson2:fastjson2:2.0.53'
+
+    // Logging - for JSON encoder
+    implementation 'net.logstash.logback:logstash-logback-encoder:7.4'
+
+    // Janino - for logback conditional processing
+    implementation 'org.codehaus.janino:janino:3.1.12'
 
     // Spring DevTools
     developmentOnly 'org.springframework.boot:spring-boot-devtools'

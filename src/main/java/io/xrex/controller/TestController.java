@@ -43,7 +43,7 @@ public class TestController {
         };
 
         List<TransferRequest> requests = new ArrayList<>();
-        for (int i = 0; i < 2; i++) {
+        for (int i = 0; i < totalRequests; i++) {
             TransferRequest request = TransferRequest.newBuilder()
                     .setFromUid(1).setFromType(201106).setToUid(19914).setToType(201106)
                     .setAmount("100").setScene("TRANSFER_COMMON").setMeta("0")

@@ -76,9 +76,7 @@ public class TransferGrpcService extends TransferServiceGrpc.TransferServiceImpl
                 .setCreatedTime(createdTimestamp)
                 .setUpdatedTime(updatedTimestamp);
 
-        if (inMemoryBalanceStore.getConfigAccountTypeMap().containsKey(accountEntity.getType())) {
-            responseBuilder.setCurrency(inMemoryBalanceStore.getConfigAccountTypeMap().get(accountEntity.getType()).getCoinSymbol());
-        }
+        responseBuilder.setCurrency(inMemoryBalanceStore.getConfigAccountType(accountEntity.getType()).getCoinSymbol());
 
         responseObserver.onNext(responseBuilder.build());
         responseObserver.onCompleted();

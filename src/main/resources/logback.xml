@@ -1,0 +1,68 @@
+<configuration debug="false">
+
+    <contextName>balance-service</contextName>
+    <property name="APP_ENV" value="${APP_ENV:-unset}"/>
+
+    <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+    <statusListener class="ch.qos.logback.core.status.OnConsoleStatusListener"/>
+
+    <!-- log with color -->
+    <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d %contextName %boldYellow([%thread]) %highlight(%-5level) %X{request_id} %X{xrex_user_id} %cyan(%logger{36}) - %clr(%msg%n)
+            </pattern>
+        </encoder>
+    </appender>
+
+    <appender name="STDOUT-JSON" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder class="ch.qos.logback.core.encoder.LayoutWrappingEncoder">
+            <layout class="ch.qos.logback.contrib.json.classic.JsonLayout">
+                <jsonFormatter class="ch.qos.logback.contrib.jackson.JacksonJsonFormatter">
+                    <prettyPrint>false</prettyPrint>
+                </jsonFormatter>
+                <timestampFormat>yyyy-MM-dd HH:mm:ss.SSS</timestampFormat>
+                <appendLineSeparator>true</appendLineSeparator>
+            </layout>
+        </encoder>
+    </appender>
+
+    <!-- File Appenders -->
+    <appender name="FILEOUT-JSON" class="ch.qos.logback.core.FileAppender">
+        <file>${CATALINA_HOME:-/tmp}/logs/account-service-log.json</file>
+        <prudent>true</prudent>
+        <encoder class="ch.qos.logback.core.encoder.LayoutWrappingEncoder">
+            <layout class="ch.qos.logback.contrib.json.classic.JsonLayout">
+                <jsonFormatter class="ch.qos.logback.contrib.jackson.JacksonJsonFormatter">
+                    <prettyPrint>false</prettyPrint>
+                </jsonFormatter>
+                <timestampFormat>yyyy-MM-dd HH:mm:ss.SSS</timestampFormat>
+                <appendLineSeparator>true</appendLineSeparator>
+            </layout>
+        </encoder>
+    </appender>
+
+    <!-- Version Environment -->
+    <property name="APP_NAME" value="${APP_NAME:-nft-service}"/>
+    <property name="APP_ENV" value="${APP_ENV:-unset}"/>
+    <property name="IMAGE_VERSION" value="${IMAGE_VERSION:-unset}"/>
+    <property name="RELEASE_VERSION" value="${RELEASE_VERSION:-unset}"/>
+
+    <logger name="org.springframework.orm.jpa" level="INFO"/>
+    <logger name="org.apache.kafka.clients.producer.ProducerConfig" level="WARN"/>
+    <logger name="org.apache.kafka.clients.consumer.ConsumerConfig" level="WARN"/>
+    <logger name="org.apache.http" level="INFO"/>
+    <logger name="com.zaxxer.hikari" level="INFO"/>
+    <logger name="org.hibernate" level="INFO"/>
+    <logger name="org.springframework" level="INFO"/>
+    <logger name="io.lettuce" level="INFO"/>
+    <logger name="io.netty" level="INFO"/>
+    <logger name="org.apache.kafka" level="INFO"/>
+    <!-- show SQL with properties spring.jpa.properties.hibernate.format_sql=true -->
+    <!-- <logger name="org.hibernate.SQL" level="DEBUG" />-->
+
+    <property name="LOG_LEVEL" value="INFO"/>
+    <root level="${LOG_LEVEL}">
+        <appender-ref ref="STDOUT"/>
+    </root>
+
+</configuration>
