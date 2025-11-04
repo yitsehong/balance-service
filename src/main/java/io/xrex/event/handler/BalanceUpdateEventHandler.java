@@ -8,7 +8,6 @@ import io.xrex.model.dto.AccountIdDto;
 import io.xrex.model.dto.event.TransactionEventDto;
 import io.xrex.model.entity.ConfigAccountTypeEntity;
 import io.xrex.model.entity.LedgerBookEntity;
-import io.xrex.model.entity.TransactionEntity;
 import io.xrex.repository.ConfigAccountTypeRepository;
 import io.xrex.repository.LedgerBookDao;
 import io.xrex.repository.TransactionDao;
@@ -102,11 +101,6 @@ public class BalanceUpdateEventHandler implements EventHandler<TransferRingBuffe
             log.info("DEBUG: [EventHandler] After RocksDB write for aggregated batch.");
         }
 
-        // 3. Prepare and batch insert Transaction and LedgerBook entities
-        List<TransactionEntity> transactions = new ArrayList<>();
-        List<LedgerBookEntity> ledgerBooks = new ArrayList<>();
-
-
         for (TransferRingBufferEvent event : batch) {
             ConfigAccountTypeEntity fromConfig = configRepo.findByAssetType(event.getFromAssetType());
             AccountIdDto fromId = buildAccountId(event.getFromChainupId(), event.getFromAssetType(), fromConfig);
@@ -118,43 +112,18 @@ public class BalanceUpdateEventHandler implements EventHandler<TransferRingBuffe
 
             // Build TransactionEntity
             LocalDateTime now = LocalDateTime.now();
-            TransactionEntity tx = new TransactionEntity();
-            tx.setId(snowflakeIdGenerator.nextId());
-            tx.setFromUid(fromId.getChainupId());
-            tx.setFromType(fromId.getAssetType());
-            tx.setFromBalance(fromFinalBalance);
-            tx.setToUid(toId.getChainupId());
-            tx.setToType(toId.getAssetType());
-            tx.setToBalance(toFinalBalance);
-            tx.setAmount(event.getAmount());
-            tx.setMeta(event.getMeta());
-            tx.setScene(event.getScene());
-            tx.setRefType(event.getRefType());
-            tx.setRefId(event.getRefId());
-            tx.setOpUid(event.getOpUid());
-            tx.setOpIp(event.getOpIp());
-            tx.setCtime(now);
-            tx.setMtime(now);
-            tx.fingerprint();
-            transactions.add(tx);
-
             // Build LedgerBookEntity (from)
             LedgerBookEntity fromLedger = buildLedgerBook(event.getEventKey(), fromId, event.getAmount().negate(), fromFinalBalance,
                     event.getScene(), event.getRefType(), event.getRefId(), now);
-            ledgerBooks.add(fromLedger);
             // Build LedgerBookEntity (to)
             LedgerBookEntity toLedger = buildLedgerBook(event.getEventKey(), toId, event.getAmount(), toFinalBalance,
                     event.getScene(), event.getRefType(), event.getRefId(), now);
-            ledgerBooks.add(toLedger);
 
             // Re-integrate Kafka Producer Service
             TransactionEventDto kafkaEvent = TransactionEventDto.builder()
-                    .eventKey(event.getEventKey())
-                    .meta(event.getMeta())
-                    .opUid(event.getOpUid())
-                    .opIp(event.getOpIp())
-                    .from(fromLedger)
-                    .to(toLedger).build();
+                    .eventKey(event.getEventKey()).meta(event.getMeta())
+                    .opUid(event.getOpUid()).opIp(event.getOpIp())
+                    .from(fromLedger).to(toLedger).build();
             kafkaProducerService.sendTransferEvent(kafkaEvent);
 
             // Optional: Complete future
@@ -162,11 +131,6 @@ public class BalanceUpdateEventHandler implements EventHandler<TransferRingBuffe
                 event.getFuture().complete(event.getEventKey());
             }
         }
-
-        log.info("DEBUG: [EventHandler] Before batch insert to DB.");
-        ledgerBookDao.batchInsert(ledgerBooks);
-        transactionDao.batchInsert(transactions);
-        log.info("DEBUG: [EventHandler] After batch insert to DB.");
     }
 
     private BigDecimal applyDeltaToRocksDB(WriteBatch writeBatch, AccountIdDto accountId, BigDecimal delta) throws RocksDBException {

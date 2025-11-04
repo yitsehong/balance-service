@@ -20,9 +20,9 @@ public class BatchTransferProcessorService {
 
     public BatchTransferProcessorService(
             CustomRaftClient raftClient,
-            @Value("${batch-processor.thread-pool.core-size:2}") int corePoolSize,
-            @Value("${batch-processor.thread-pool.max-size:2}") int maxPoolSize,
-            @Value("${batch-processor.thread-pool.queue-capacity:10000}") int queueCapacity) {
+            @Value("${raft.batch-processor.thread-pool.core-size:2}") int corePoolSize,
+            @Value("${raft.batch-processor.thread-pool.max-size:2}") int maxPoolSize,
+            @Value("${raft.batch-processor.thread-pool.queue-capacity:10000}") int queueCapacity) {
 
         this.batchTransferProcessor = new BatchTransferProcessor(raftClient);
 

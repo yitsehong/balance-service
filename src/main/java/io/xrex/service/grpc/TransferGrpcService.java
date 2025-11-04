@@ -20,6 +20,7 @@ import org.apache.ratis.protocol.RaftClientReply;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.stream.Collectors;
 
 /**
  * gRPC 服務的實作，提供轉帳和餘額查詢的 API 端點。
@@ -56,9 +57,14 @@ public class TransferGrpcService extends TransferServiceGrpc.TransferServiceImpl
                         Status status = Status.INTERNAL.withDescription("Internal error: " + throwable.getMessage());
                         responseObserver.onError(status.asRuntimeException());
                     } else {
+                        List<String> eventKeys = futures.stream()
+                                .map(CompletableFuture::join).collect(Collectors.toList());
+
                         TransferResponse response = TransferResponse.newBuilder()
                                 .setSuccess(true)
-                                .setMessage("All transfers submitted to Raft cluster for processing.").build();
+                                .addAllEventKey(eventKeys)
+                                .setMessage("All transfers submitted to Raft cluster for processing.")
+                                .build();
                         responseObserver.onNext(response);
                         responseObserver.onCompleted();
                     }
