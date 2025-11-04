@@ -9,7 +9,7 @@
     <!-- log with color -->
     <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
         <encoder>
-            <pattern>%d %contextName %boldYellow([%thread]) %highlight(%-5level) %X{request_id} %X{xrex_user_id} %cyan(%logger{36}) - %clr(%msg%n)
+            <pattern>%d %contextName %boldYellow([%thread]) %highlight(%-5level) [keys:%X{batchEventKeys}] %X{request_id} %X{xrex_user_id} %cyan(%logger{36}) - %clr(%msg%n)
             </pattern>
         </encoder>
     </appender>
@@ -57,6 +57,8 @@
     <logger name="io.lettuce" level="INFO"/>
     <logger name="io.netty" level="INFO"/>
     <logger name="org.apache.kafka" level="INFO"/>
+    <!-- Add this to see detailed Raft server logs -->
+    <logger name="org.apache.ratis" level="INFO"/>
     <!-- show SQL with properties spring.jpa.properties.hibernate.format_sql=true -->
     <!-- <logger name="org.hibernate.SQL" level="DEBUG" />-->
 

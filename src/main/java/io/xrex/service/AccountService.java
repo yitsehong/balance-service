@@ -64,13 +64,13 @@ public class AccountService {
     private AccountEntity buildNewAccount(AccountIdDto accountId, BigDecimal initialBalance) {
         LocalDateTime now = LocalDateTime.now();
         AccountEntity account = new AccountEntity();
-        account.setUid(accountId.chainupId());
-        account.setType(accountId.assetType());
+        account.setUid(accountId.getChainupId());
+        account.setType(accountId.getAssetType());
         account.setBalance(initialBalance);
         account.setCtime(now);
         account.setMtime(now);
 
-        ConfigAccountTypeEntity configAccountType = configAccountTypeRepository.findByAssetType(accountId.assetType());
+        ConfigAccountTypeEntity configAccountType = configAccountTypeRepository.findByAssetType(accountId.getAssetType());
         if (configAccountType != null) {
             account.setTag(Optional.ofNullable(configAccountType.getTag()).map(String::toLowerCase).orElse(null));
         }

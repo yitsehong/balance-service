@@ -1,0 +1,83 @@
+package io.xrex.service.raft;
+
+import io.xrex.model.dto.event.TransactionEventDto;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.ratis.protocol.RaftClientReply;
+import org.slf4j.MDC;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.*;
+import java.util.stream.Collectors;
+
+@Slf4j
+public class BatchTransferProcessor implements Runnable {
+
+    private final CustomRaftClient raftClient;
+    private final BlockingQueue<TransferRaftRequest> queue = new LinkedBlockingQueue<>();
+    private final int batchSize = 1000;
+    private final long timeout = 5; // 5ms
+
+    public BatchTransferProcessor(CustomRaftClient raftClient) {
+        this.raftClient = raftClient;
+    }
+
+    public CompletableFuture<RaftClientReply> submit(TransferRaftRequest raftRequest) {
+        boolean check = queue.offer(raftRequest);
+        if (!check) {
+            log.error("Failed to add transfer request, event={}", raftRequest);
+        }
+        return raftRequest.getFuture();
+    }
+
+    @Override
+    public void run() {
+        while (!Thread.currentThread().isInterrupted()) {
+            try {
+                List<TransferRaftRequest> batch = new ArrayList<>();
+                long startTime = System.currentTimeMillis();
+
+                while (batch.size() < batchSize && (System.currentTimeMillis() - startTime) < timeout) {
+                    TransferRaftRequest request = queue.poll(timeout - (System.currentTimeMillis() - startTime), TimeUnit.MILLISECONDS);
+                    if (request != null) {
+                        batch.add(request);
+                    }
+                }
+
+                if (!batch.isEmpty()) {
+                    processBatch(batch);
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+    }
+
+    private void processBatch(List<TransferRaftRequest> batch) {
+        // 將批次中的所有 eventKey 收集起來，放入 MDC，方便日誌追蹤
+        String batchEventKeys = batch.stream().map(r -> r.getEvent().getEventKey())
+                                     .collect(Collectors.joining(","));
+        MDC.put("batchEventKeys", batchEventKeys);
+        try {
+            log.info("[BatchTransferProcessor] Processing batch of {} events.", batch.size());
+            List<TransactionEventDto> events = batch.stream().map(TransferRaftRequest::getEvent).toList();
+            CompletableFuture<RaftClientReply> batchFuture = raftClient.sendBatch(events);
+            batchFuture.whenComplete((reply, ex) -> {
+                if (ex != null) {
+                    log.error("Batch processing failed.", ex);
+                    for (TransferRaftRequest request : batch) {
+                        request.getFuture().completeExceptionally(ex);
+                    }
+                } else {
+                    log.info("[BatchTransferProcessor] Batch processing successful.");
+                    for (TransferRaftRequest request : batch) {
+                        request.getFuture().complete(reply);
+                    }
+                }
+            });
+        } finally {
+            // 確保在操作結束後清除 MDC，以防線程重用時數據污染
+            MDC.remove("batchEventKeys");
+        }
+    }
+}

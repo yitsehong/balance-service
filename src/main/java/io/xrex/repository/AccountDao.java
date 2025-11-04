@@ -37,8 +37,8 @@ public class AccountDao {
 
                 ps.setBigDecimal(1, adjustment);
                 ps.setTimestamp(2, Timestamp.valueOf(LocalDateTime.now()));
-                ps.setInt(3, accountId.chainupId());
-                ps.setInt(4, accountId.assetType());
+                ps.setInt(3, accountId.getChainupId());
+                ps.setInt(4, accountId.getAssetType());
             }
 
             @Override

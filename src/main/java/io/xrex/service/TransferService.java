@@ -4,16 +4,20 @@ import io.xrex.model.dto.AccountIdDto;
 import io.xrex.model.dto.event.TransactionEventDto;
 import io.xrex.model.entity.LedgerBookEntity;
 import io.xrex.model.entity.TransactionEntity;
-import io.xrex.repository.LedgerBookDao;
 import io.xrex.repository.TransactionDao;
+import io.xrex.service.raft.BatchTransferProcessorService;
+import io.xrex.service.raft.CustomRaftClient;
+import io.xrex.enums.ReadConsistency;
+import io.xrex.service.raft.TransferRaftRequest;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.ratis.protocol.RaftClientReply;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 
 @Slf4j
 @Service
@@ -21,47 +25,34 @@ public class TransferService {
 
     private final AccountService accountService;
     private final TransactionDao transactionDao;
-    private final LedgerBookDao ledgerBookDao;
+    private final BatchTransferProcessorService batchTransferProcessorService;
+    private final CustomRaftClient raftClient;
 
     public TransferService(AccountService accountService,
                            TransactionDao transactionDao,
-                           LedgerBookDao ledgerBookDao) {
+                           BatchTransferProcessorService batchTransferProcessorService,
+                           CustomRaftClient raftClient) {
         this.accountService = accountService;
         this.transactionDao = transactionDao;
-        this.ledgerBookDao = ledgerBookDao;
+        this.batchTransferProcessorService = batchTransferProcessorService;
+        this.raftClient = raftClient;
     }
 
-    @Transactional
-    public void transfer(TransactionEventDto event) {
-        processSingleTransfer(event);
+    public CompletableFuture<RaftClientReply> transfer(TransactionEventDto event) {
+        log.info("[TransferService] submit transfer event={}", event);
+        TransferRaftRequest transferRaftRequest = new TransferRaftRequest(event);
+        return batchTransferProcessorService.getBatchProcessor().submit(transferRaftRequest);
     }
 
-    @Transactional
+    public CompletableFuture<RaftClientReply> queryBalance(AccountIdDto accountId, ReadConsistency readConsistency) {
+        return raftClient.queryBalance(accountId, readConsistency);
+    }
+
     public void batchTransfer(Map<AccountIdDto, BigDecimal> balanceAdjustments,
-                              List<LedgerBookEntity> ledgerBooks,
                               List<TransactionEntity> transactions) {
-        // Step 1: Apply the aggregated balance updates to the account table in a single batch operation.
+        // Apply the aggregated balance updates to the account table in a single batch operation.
         accountService.batchUpdateBalances(balanceAdjustments);
-        // Step 2: Batch insert all records using high-performance JdbcTemplate
-        if (ledgerBooks != null) {
-
-        }
-
         transactionDao.batchInsert(transactions);
-    }
-
-    private void processSingleTransfer(TransactionEventDto event) {
-        LedgerBookEntity fromLedger = event.getFrom();
-        LedgerBookEntity toLedger = event.getTo();
-
-        // Update account balances
-        accountService.updateBalance(fromLedger.getChainupId(), fromLedger.getAssetType(), fromLedger.getAmount());
-        accountService.updateBalance(toLedger.getChainupId(), toLedger.getAssetType(), toLedger.getAmount());
-
-        // Save ledger books
-        ledgerBookDao.batchInsert(List.of(fromLedger, toLedger));
-        // Create and persist the transaction record
-        transactionDao.batchInsert(List.of(createTransactionEntityFromEvent(event)));
     }
 
     public TransactionEntity createTransactionEntityFromEvent(TransactionEventDto event) {

@@ -4,7 +4,7 @@ import io.grpc.stub.StreamObserver;
 import io.xrex.grpc.TransferListRequest;
 import io.xrex.grpc.TransferRequest;
 import io.xrex.grpc.TransferResponse;
-import io.xrex.service.TransferInMemoryService;
+import io.xrex.service.grpc.TransferGrpcService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -19,7 +19,7 @@ import java.util.List;
 @RequiredArgsConstructor
 public class TestController {
 
-    private final TransferInMemoryService transferInMemoryService;
+    private final TransferGrpcService transferGrpcService;
 
     @PostMapping("/api/v1/test/{totalRequests}")
     public void test(@PathVariable int totalRequests) throws InterruptedException {
@@ -28,7 +28,7 @@ public class TestController {
         StreamObserver<TransferResponse> responseObserver = new StreamObserver<>() {
             @Override
             public void onNext(TransferResponse value) {
-                log.info("Test transfer accepted: {}", value.getEventKeyList());
+                log.info("Test transfer submitted to Raft: {}", value.getMessage());
             }
 
             @Override
@@ -54,11 +54,11 @@ public class TestController {
         TransferListRequest listRequest = TransferListRequest.newBuilder().addAllRequests(requests).build();
 
         try {
-            transferInMemoryService.transfer(listRequest, responseObserver);
+            transferGrpcService.transfer(listRequest, responseObserver);
         } catch (Exception e) {
             log.error("Test transfer failed", e);
         }
 
-        log.info("Finished sending {} requests, time={}ms", 2, System.currentTimeMillis() - start);
+        log.info("Finished submitting {} requests, time={}ms", totalRequests, System.currentTimeMillis() - start);
     }
 }

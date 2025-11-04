@@ -42,14 +42,14 @@ public class KafkaConsumerService {
             // Step 1: Aggregate balance changes for each account
             Map<AccountIdDto, BigDecimal> balanceAdjustments = events.stream()
                     .flatMap(event -> Stream.of(
-                            Map.entry(new AccountIdDto(event.getFrom().getChainupId(), event.getFrom().getAssetType()), event.getFrom().getAmount()),
-                            Map.entry(new AccountIdDto(event.getTo().getChainupId(), event.getTo().getAssetType()), event.getTo().getAmount())
+                            Map.entry(new AccountIdDto(event.getFrom().getChainupId(), event.getFrom().getAssetType(), event.getFrom().getCoinSymbol(), event.getFrom().getAccountTag()), event.getFrom().getAmount()),
+                            Map.entry(new AccountIdDto(event.getTo().getChainupId(), event.getTo().getAssetType(), event.getTo().getCoinSymbol(), event.getTo().getAccountTag()), event.getTo().getAmount())
                     )).collect(Collectors.groupingBy(Map.Entry::getKey, Collectors.reducing(BigDecimal.ZERO, Map.Entry::getValue, BigDecimal::add)));
             // Step 2: Collect all individual ledger and transaction records for batch insertion
             List<TransactionEntity> transactions = events.stream().map(transferService::createTransactionEntityFromEvent).toList();
 
             // Each mini-batch is processed in its own transaction via batchTransfer
-            transferService.batchTransfer(balanceAdjustments, null, transactions);
+            transferService.batchTransfer(balanceAdjustments, transactions);
             log.info("Successfully persisted of event size={}, balanceAdjustments size={}, time1={}ms, time2={}ms", events.size(), balanceAdjustments.size(), time2 - time1, System.currentTimeMillis() - time2);
         } catch (Exception e) {
             // Log the error for the specific mini-batch and continue with the next

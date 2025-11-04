@@ -84,3 +84,14 @@ snowflake:
   worker-id: 1
   datacenter-id: 1
 
+raft:
+  id: "n1"
+  group:
+    id: "3f0d6d49-54a7-4161-9f8c-27a8563312c7"
+  port: 8886
+  batch-processor:
+    thread-pool:
+      core-size: 2
+      max-size: 4
+      queue-capacity: 10000
+
