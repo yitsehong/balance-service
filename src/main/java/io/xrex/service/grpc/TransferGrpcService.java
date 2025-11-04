@@ -19,8 +19,8 @@ import org.apache.ratis.protocol.RaftClientReply;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
-import java.util.stream.Collectors;
 
 /**
  * gRPC 服務的實作，提供轉帳和餘額查詢的 API 端點。
@@ -47,10 +47,13 @@ public class TransferGrpcService extends TransferServiceGrpc.TransferServiceImpl
      */
     @Override
     public void transfer(TransferListRequest request, StreamObserver<TransferResponse> responseObserver) {
-        List<CompletableFuture<RaftClientReply>> futures = request.getRequestsList().stream()
+        List<Map<String, CompletableFuture<RaftClientReply>>> futures = request.getRequestsList().stream()
                 .map(this::processSingleTransfer).toList();
 
-        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
+        CompletableFuture<?>[] allFutures = futures.stream()
+                 .flatMap(map -> map.values().stream()).toArray(CompletableFuture[]::new);
+
+        CompletableFuture.allOf(allFutures)
                 .whenComplete((voidResult, throwable) -> {
                     if (throwable != null) {
                         log.error("Error processing batch transfer via Raft", throwable);
@@ -58,7 +61,7 @@ public class TransferGrpcService extends TransferServiceGrpc.TransferServiceImpl
                         responseObserver.onError(status.asRuntimeException());
                     } else {
                         List<String> eventKeys = futures.stream()
-                                .map(CompletableFuture::join).collect(Collectors.toList());
+                                 .flatMap(map -> map.keySet().stream()).toList();
 
                         TransferResponse response = TransferResponse.newBuilder()
                                 .setSuccess(true)
@@ -71,7 +74,7 @@ public class TransferGrpcService extends TransferServiceGrpc.TransferServiceImpl
                 });
     }
 
-    private CompletableFuture<RaftClientReply> processSingleTransfer(TransferRequest grpcRequest) {
+    private Map<String, CompletableFuture<RaftClientReply>> processSingleTransfer(TransferRequest grpcRequest) {
         final String eventKey = snowflakeIdGenerator.nextIdString();
         BigDecimal amount = new BigDecimal(grpcRequest.getAmount());
         LedgerBookEntity fromLedger = LedgerBookEntity.builder()
@@ -93,7 +96,8 @@ public class TransferGrpcService extends TransferServiceGrpc.TransferServiceImpl
                 .meta(grpcRequest.getMeta())
                 .opUid(grpcRequest.getOpUid()).opIp(grpcRequest.getOpIp()).build();
         TransferRaftRequest transferRaftRequest = new TransferRaftRequest(event);
-        return batchTransferProcessorService.getBatchProcessor().submit(transferRaftRequest);
+        CompletableFuture<RaftClientReply> future = batchTransferProcessorService.getBatchProcessor().submit(transferRaftRequest);
+        return Map.of(eventKey, future);
     }
 
     /**
