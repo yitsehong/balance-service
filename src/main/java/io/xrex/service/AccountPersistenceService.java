@@ -1,10 +1,8 @@
-package io.xrex.service.kafka;
+package io.xrex.service;
 
 import io.xrex.model.dto.AccountIdDto;
 import io.xrex.model.dto.event.TransactionEventDto;
 import io.xrex.model.entity.TransactionEntity;
-import io.xrex.service.LedgerBookService;
-import io.xrex.service.TransferService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
@@ -21,7 +19,7 @@ import java.util.stream.Stream;
 @Slf4j
 @Service
 @RequiredArgsConstructor
-public class KafkaConsumerService {
+public class AccountPersistenceService {
 
     private final TransferService transferService;
     private final LedgerBookService ledgerBookService;

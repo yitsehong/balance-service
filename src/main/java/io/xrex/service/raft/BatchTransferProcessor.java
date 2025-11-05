@@ -55,9 +55,9 @@ public class BatchTransferProcessor implements Runnable {
 
     private void processBatch(List<TransferRaftRequest> batch) {
         // 將批次中的所有 eventKey 收集起來，放入 MDC，方便日誌追蹤
-        String batchEventKeys = batch.stream().map(r -> r.getEvent().getEventKey())
+        String eventKeys = batch.stream().map(r -> r.getEvent().getEventKey())
                                      .collect(Collectors.joining(","));
-        MDC.put("batchEventKeys", batchEventKeys);
+        MDC.put("eventKeys", eventKeys);
         try {
             log.info("[BatchTransferProcessor] Processing batch of {} events.", batch.size());
             List<TransactionEventDto> events = batch.stream().map(TransferRaftRequest::getEvent).toList();
@@ -77,7 +77,7 @@ public class BatchTransferProcessor implements Runnable {
             });
         } finally {
             // 確保在操作結束後清除 MDC，以防線程重用時數據污染
-            MDC.remove("batchEventKeys");
+            MDC.remove("eventKeys");
         }
     }
 }

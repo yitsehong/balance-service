@@ -1,8 +1,8 @@
 package io.xrex.config;
 
+import io.xrex.model.dto.event.TransactionEventDto;
 import io.xrex.service.ConfigService;
 import io.xrex.service.RocksDBService;
-import io.xrex.service.kafka.KafkaProducerService;
 import io.xrex.service.raft.BalanceStateMachine;
 import io.xrex.service.raft.CustomRaftClient;
 import io.xrex.service.raft.CustomRaftServer;
@@ -12,6 +12,7 @@ import org.apache.ratis.protocol.RaftPeer;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.kafka.core.KafkaTemplate;
 
 import java.io.IOException;
 import java.util.Collections;
@@ -30,10 +31,10 @@ public class RaftConfig {
     private int raftPort;
 
     @Bean
-    public BalanceStateMachine raftStateMachine(KafkaProducerService kafkaProducerService,
+    public BalanceStateMachine raftStateMachine(KafkaTemplate<String, TransactionEventDto> kafkaTemplate,
                                                 ConfigService configService, RocksDBService rocksDBService) {
         // Pass all required dependencies to the state machine.
-        return new BalanceStateMachine(kafkaProducerService, configService, rocksDBService);
+        return new BalanceStateMachine(kafkaTemplate, configService, rocksDBService);
     }
 
     @Bean

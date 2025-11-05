@@ -1,7 +1,7 @@
 package io.xrex.service.raft;
 
 import com.alibaba.fastjson2.JSON;
-import com.lmax.disruptor.EventTranslatorVararg;
+import com.lmax.disruptor.EventTranslatorOneArg;
 import com.lmax.disruptor.RingBuffer;
 import com.lmax.disruptor.dsl.Disruptor;
 import com.lmax.disruptor.util.DaemonThreadFactory;
@@ -12,7 +12,6 @@ import io.xrex.model.dto.AccountIdDto;
 import io.xrex.model.dto.event.TransactionEventDto;
 import io.xrex.service.ConfigService;
 import io.xrex.service.RocksDBService;
-import io.xrex.service.kafka.KafkaProducerService;
 import io.xrex.service.raft.command.BatchCommand;
 import io.xrex.service.raft.command.QueryCommand;
 import lombok.extern.slf4j.Slf4j;
@@ -26,6 +25,8 @@ import org.rocksdb.Checkpoint;
 import org.rocksdb.Options;
 import org.rocksdb.RocksDB;
 import org.rocksdb.RocksDBException;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.kafka.core.KafkaTemplate;
 
 import java.io.File;
 import java.io.IOException;
@@ -43,15 +44,18 @@ public class BalanceStateMachine extends BaseStateMachine {
     private File dbDir;
     private RaftGroupId groupId;
 
-    private final KafkaProducerService kafkaProducerService;
+    @Value("${app.kafka.balance-transfer.topic}")
+    private String topic;
+    private final KafkaTemplate<String, TransactionEventDto> kafkaTemplate;
     private final ConfigService configService;
     private final RocksDBService rocksDBService;
 
     private Disruptor<TransferRingBufferEvent> disruptor;
     private RingBuffer<TransferRingBufferEvent> ringBuffer;
 
-    public BalanceStateMachine(KafkaProducerService kafkaProducerService, ConfigService configService, RocksDBService rocksDBService) {
-        this.kafkaProducerService = kafkaProducerService;
+    public BalanceStateMachine(KafkaTemplate<String, TransactionEventDto> kafkaTemplate,
+                               ConfigService configService, RocksDBService rocksDBService) {
+        this.kafkaTemplate = kafkaTemplate;
         this.configService = configService;
         this.rocksDBService = rocksDBService;
     }
@@ -71,27 +75,30 @@ public class BalanceStateMachine extends BaseStateMachine {
         }
 
         this.disruptor = new Disruptor<>(TransferRingBufferEvent::new, 1024, DaemonThreadFactory.INSTANCE);
-        final BalanceUpdateEventHandler handler = new BalanceUpdateEventHandler(this.kafkaProducerService, this.configService, this.rocksDBService);
+        final BalanceUpdateEventHandler handler = new BalanceUpdateEventHandler(topic, this.kafkaTemplate, this.configService, this.rocksDBService);
         this.disruptor.handleEventsWith(handler);
         this.ringBuffer = this.disruptor.start();
     }
 
-    private static final EventTranslatorVararg<TransferRingBufferEvent> BATCH_TRANSLATOR = (event, sequence, args) -> {
-        TransactionEventDto eventData = (TransactionEventDto) args[0];
-        event.setEventKey(eventData.getEventKey());
-        event.setFromChainupId(eventData.getFrom().getChainupId());
-        event.setFromAssetType(eventData.getFrom().getAssetType());
-        event.setToChainupId(eventData.getTo().getChainupId());
-        event.setToAssetType(eventData.getTo().getAssetType());
-        event.setAmount(eventData.getTo().getAmount());
-        event.setScene(eventData.getFrom().getScene());
-        event.setRefType(eventData.getFrom().getRefType());
-        event.setRefId(eventData.getFrom().getRefId());
-        event.setMeta(eventData.getMeta());
-        event.setOpUid(eventData.getOpUid());
-        event.setOpIp(eventData.getOpIp());
-        event.setFuture(null);
-    };
+    // 1. 修改 Translator 類型為 EventTranslatorOneArg，並專注於處理單個 DTO
+    private static final EventTranslatorOneArg<TransferRingBufferEvent, TransactionEventDto> TRANSACTION_EVENT_TRANSLATOR =
+            (event, sequence, eventData) -> {
+                event.setEventKey(eventData.getEventKey());
+                event.setFromChainupId(eventData.getFrom().getChainupId());
+                event.setFromAssetType(eventData.getFrom().getAssetType());
+                event.setToChainupId(eventData.getTo().getChainupId());
+                event.setToAssetType(eventData.getTo().getAssetType());
+                event.setAmount(eventData.getTo().getAmount());
+                event.setScene(eventData.getFrom().getScene());
+                event.setRefType(eventData.getFrom().getRefType());
+                event.setRefId(eventData.getFrom().getRefId());
+                event.setMeta(eventData.getMeta());
+                event.setOpUid(eventData.getOpUid());
+                event.setOpIp(eventData.getOpIp());
+
+                CompletableFuture<String> future = new CompletableFuture<>();
+                event.setFuture(future);
+            };
 
     @Override
     public CompletableFuture<Message> applyTransaction(TransactionContext trx) {
@@ -108,9 +115,13 @@ public class BalanceStateMachine extends BaseStateMachine {
             return CompletableFuture.completedFuture(Message.valueOf("Duplicate request"));
         }
 
-        log.info("[BalanceStateMachine] Publishing {} events to RingBuffer using publishEvents...", command.getEvents().size());
-        var events = command.getEvents().toArray(new TransactionEventDto[0]);
-        ringBuffer.publishEvents(BATCH_TRANSLATOR, events);
+        log.info("[BalanceStateMachine] Publishing {} events to RingBuffer...", command.getEvents().size());
+
+        // 2. 修改發布邏輯：遍歷 DTO 列表，為每個 DTO 單獨發布一個事件
+        for (TransactionEventDto eventDto : command.getEvents()) {
+            ringBuffer.publishEvent(TRANSACTION_EVENT_TRANSLATOR, eventDto);
+        }
+
         log.info("[BalanceStateMachine] All events published to RingBuffer.");
 
         clientSequenceIds.put(clientId, sequenceId);
@@ -118,7 +129,7 @@ public class BalanceStateMachine extends BaseStateMachine {
         return CompletableFuture.completedFuture(Message.valueOf("OK"));
     }
 
-    // ... (rest of the methods remain the same)
+    // ... (其餘程式碼保持不變) ...
 
     @Override
     public CompletableFuture<Message> query(Message request) {

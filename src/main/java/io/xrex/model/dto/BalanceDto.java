@@ -24,4 +24,11 @@ public class BalanceDto {
         return accountIdDto;
     }
 
+    @Override
+    public String toString() {
+        return "BalanceDto{" +
+                "accountIdDto=" + accountIdDto +
+                ", amount=" + amount +
+                '}';
+    }
 }
