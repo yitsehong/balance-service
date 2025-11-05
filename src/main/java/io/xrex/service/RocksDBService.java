@@ -15,9 +15,7 @@ import io.xrex.repository.AccountRepository;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
-import org.rocksdb.Options;
-import org.rocksdb.RocksDB;
-import org.rocksdb.RocksDBException;
+import org.rocksdb.*;
 import org.slf4j.MDC;
 import org.springframework.stereotype.Service;
 
@@ -71,9 +69,10 @@ public class RocksDBService {
             String refType = event.getRefType();
             Long refId = event.getRefId();
 
-            // Get balances from the cache
+            // Get balances
             BalanceDto fromAccountBalance = findById(fromAccountId).orElse(new BalanceDto(fromAccountId, BigDecimal.ZERO));
             BalanceDto toAccountBalance = findById(toAccountId).orElse(new BalanceDto(toAccountId, BigDecimal.ZERO));
+
             // Check for sufficient funds
             boolean ignoreCheck = fromAccountId.getChainupId() == 1; // Assuming chainupId 1 is a system/internal account
             if (!ignoreCheck && fromAccountBalance.getAmount().compareTo(amount) < 0) {
@@ -88,17 +87,32 @@ public class RocksDBService {
             BigDecimal toBeforeBalance = toAccountBalance.getAmount();
             BigDecimal toAfterBalance = toBeforeBalance.add(amount);
 
-            // Update balance objects
-            fromAccountBalance.setAmount(fromAfterBalance);
-            toAccountBalance.setAmount(toAfterBalance);
+            // --- Atomic Update using WriteBatch ---
+            try (final WriteOptions writeOpts = new WriteOptions();
+                 final WriteBatch batch = new WriteBatch()) {
 
-            save(JSON.toJSONBytes(fromAccountId), JSON.toJSONBytes(fromAccountBalance));
-            save(JSON.toJSONBytes(toAccountId), JSON.toJSONBytes(toAccountBalance));
+                // Update balance objects for serialization
+                fromAccountBalance.setAmount(fromAfterBalance);
+                toAccountBalance.setAmount(toAfterBalance);
 
-            l1Cache.put(fromAccountId, fromAfterBalance);
-            l1Cache.put(toAccountId, toAfterBalance);
+                // Add updates to the batch
+                batch.put(JSON.toJSONBytes(fromAccountId), JSON.toJSONBytes(fromAccountBalance));
+                batch.put(JSON.toJSONBytes(toAccountId), JSON.toJSONBytes(toAccountBalance));
+                // Execute the atomic write
+                db.write(writeOpts, batch);
 
-            // Create ledger book entries (this part remains the same)
+                // Update L1 cache AFTER successful DB write
+                l1Cache.put(fromAccountId, fromAfterBalance);
+                l1Cache.put(toAccountId, toAfterBalance);
+
+            } catch (RocksDBException e) {
+                log.error("Error during atomic balance update for eventKey: {}", eventKey, e);
+                // Re-throw as a runtime exception to be caught by the EventHandler
+                throw new RuntimeException("Failed to atomically update balances in RocksDB", e);
+            }
+            // --- End of Atomic Update ---
+
+            // Create ledger book entries
             LocalDateTime now = LocalDateTime.now();
             LedgerBookEntity from = LedgerBookEntity.builder()
                     .idempotencyKey(eventKey)

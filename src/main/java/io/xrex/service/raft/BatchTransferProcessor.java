@@ -11,15 +11,14 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
-import java.util.stream.Collectors;
 
 @Slf4j
 public class BatchTransferProcessor implements Runnable {
 
     private final CustomRaftClient raftClient;
     private final BlockingQueue<TransferRaftRequest> queue = new LinkedBlockingQueue<>();
-    private final int batchSize = 1000;
-    private final long timeout = 5; // 5ms
+    private final int batchSize = 3000;
+    private final long timeout = 300; // 300ms
 
     public BatchTransferProcessor(CustomRaftClient raftClient) {
         this.raftClient = raftClient;
@@ -59,7 +58,6 @@ public class BatchTransferProcessor implements Runnable {
     private void processBatch(List<TransferRaftRequest> batch) {
         MDC.put("eventKeys", batch.get(0).getEvent().getEventKey());
         try {
-            log.info("[BatchTransferProcessor] Processing batch of {} events.", batch.size());
             List<TransactionEventDto> events = batch.stream().map(TransferRaftRequest::getEvent).toList();
             CompletableFuture<RaftClientReply> batchFuture = raftClient.sendBatch(events);
             batchFuture.whenComplete((reply, ex) -> {

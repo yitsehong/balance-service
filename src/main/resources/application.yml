@@ -68,7 +68,7 @@ spring:
         jaas:
           config:
     consumer:
-      max-poll-records: 3000
+      max-poll-records: 5000
       auto-offset-reset: earliest
 
 # ===================================================================

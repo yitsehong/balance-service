@@ -6,6 +6,7 @@ import io.xrex.model.entity.TransactionEntity;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.slf4j.MDC;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.support.Acknowledgment;
 import org.springframework.stereotype.Service;
@@ -31,9 +32,11 @@ public class AccountPersistenceService {
             return;
         }
         // TODO avoid duplicated
+
         try {
             long start = System.currentTimeMillis();
             List<TransactionEventDto> events = records.stream().map(ConsumerRecord::value).toList();
+            MDC.put("eventKeys", events.get(0).getEventKey());
             ledgerBookService.produceLedgerBook(events);
 
             // Step 1: Aggregate balance changes for each account
@@ -57,6 +60,7 @@ public class AccountPersistenceService {
             // Acknowledge the entire polled batch, even if some mini-batches failed.
             // The failed ones are logged for later handling.
             acknowledgment.acknowledge();
+            MDC.remove("eventKeys");
         }
     }
 
