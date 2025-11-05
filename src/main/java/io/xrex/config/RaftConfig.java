@@ -1,13 +1,11 @@
 package io.xrex.config;
 
-import io.xrex.repository.ConfigAccountTypeRepository;
-import io.xrex.repository.LedgerBookDao;
-import io.xrex.repository.TransactionDao;
+import io.xrex.service.ConfigService;
+import io.xrex.service.RocksDBService;
 import io.xrex.service.kafka.KafkaProducerService;
 import io.xrex.service.raft.BalanceStateMachine;
 import io.xrex.service.raft.CustomRaftClient;
 import io.xrex.service.raft.CustomRaftServer;
-import io.xrex.util.SnowflakeIdGenerator;
 import org.apache.ratis.protocol.RaftGroup;
 import org.apache.ratis.protocol.RaftGroupId;
 import org.apache.ratis.protocol.RaftPeer;
@@ -33,20 +31,15 @@ public class RaftConfig {
 
     @Bean
     public BalanceStateMachine raftStateMachine(KafkaProducerService kafkaProducerService,
-                                               ConfigAccountTypeRepository configAccountTypeRepository,
-                                               TransactionDao transactionDao,
-                                               LedgerBookDao ledgerBookDao,
-                                               SnowflakeIdGenerator snowflakeIdGenerator) {
+                                                ConfigService configService, RocksDBService rocksDBService) {
         // Pass all required dependencies to the state machine.
-        return new BalanceStateMachine(kafkaProducerService, configAccountTypeRepository, transactionDao, ledgerBookDao, snowflakeIdGenerator);
+        return new BalanceStateMachine(kafkaProducerService, configService, rocksDBService);
     }
 
     @Bean
     public RaftGroup raftGroup() {
         final RaftPeer peer = RaftPeer.newBuilder()
-                .setId(raftId)
-                .setAddress("localhost:" + raftPort)
-                .build();
+                .setId(raftId).setAddress("localhost:" + raftPort).build();
         return RaftGroup.valueOf(RaftGroupId.valueOf(UUID.fromString(raftGroupId)), Collections.singletonList(peer));
     }
 

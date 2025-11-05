@@ -1,5 +1,6 @@
 package io.xrex.model.dto;
 
+import io.xrex.model.entity.ConfigAccountTypeEntity;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -17,6 +18,13 @@ public class AccountIdDto implements Serializable, Comparable<AccountIdDto> {
     private Integer assetType;
     private String coinSymbol;
     private String accountTag;
+
+    public AccountIdDto(Integer chainupId, ConfigAccountTypeEntity configAccountType) {
+        this.chainupId = chainupId;
+        this.assetType = configAccountType.getAssetType();
+        this.coinSymbol = configAccountType.getCoinSymbol();
+        this.accountTag = configAccountType.getTag();
+    }
 
     @Override
     public int compareTo(AccountIdDto other) {

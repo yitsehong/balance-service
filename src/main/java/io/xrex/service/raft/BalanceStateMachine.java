@@ -1,8 +1,6 @@
 package io.xrex.service.raft;
 
 import com.alibaba.fastjson2.JSON;
-import com.github.benmanes.caffeine.cache.Cache;
-import com.github.benmanes.caffeine.cache.Caffeine;
 import com.lmax.disruptor.EventTranslatorVararg;
 import com.lmax.disruptor.RingBuffer;
 import com.lmax.disruptor.dsl.Disruptor;
@@ -12,13 +10,11 @@ import io.xrex.event.disruptor.TransferRingBufferEvent;
 import io.xrex.event.handler.BalanceUpdateEventHandler;
 import io.xrex.model.dto.AccountIdDto;
 import io.xrex.model.dto.event.TransactionEventDto;
-import io.xrex.repository.ConfigAccountTypeRepository;
-import io.xrex.repository.LedgerBookDao;
-import io.xrex.repository.TransactionDao;
+import io.xrex.service.ConfigService;
+import io.xrex.service.RocksDBService;
 import io.xrex.service.kafka.KafkaProducerService;
 import io.xrex.service.raft.command.BatchCommand;
 import io.xrex.service.raft.command.QueryCommand;
-import io.xrex.util.SnowflakeIdGenerator;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.ratis.protocol.Message;
 import org.apache.ratis.protocol.RaftGroupId;
@@ -26,7 +22,10 @@ import org.apache.ratis.server.RaftServer;
 import org.apache.ratis.server.storage.RaftStorage;
 import org.apache.ratis.statemachine.TransactionContext;
 import org.apache.ratis.statemachine.impl.BaseStateMachine;
-import org.rocksdb.*;
+import org.rocksdb.Checkpoint;
+import org.rocksdb.Options;
+import org.rocksdb.RocksDB;
+import org.rocksdb.RocksDBException;
 
 import java.io.File;
 import java.io.IOException;
@@ -35,7 +34,6 @@ import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.TimeUnit;
 
 @Slf4j
 public class BalanceStateMachine extends BaseStateMachine {
@@ -45,26 +43,17 @@ public class BalanceStateMachine extends BaseStateMachine {
     private File dbDir;
     private RaftGroupId groupId;
 
-    private final Cache<AccountIdDto, BigDecimal> l1Cache = Caffeine.newBuilder()
-            .maximumSize(10_000)
-            .expireAfterWrite(1, TimeUnit.SECONDS)
-            .build();
-
     private final KafkaProducerService kafkaProducerService;
-    private final ConfigAccountTypeRepository configRepo;
-    private final TransactionDao transactionDao;
-    private final LedgerBookDao ledgerBookDao;
-    private final SnowflakeIdGenerator snowflakeIdGenerator;
+    private final ConfigService configService;
+    private final RocksDBService rocksDBService;
 
     private Disruptor<TransferRingBufferEvent> disruptor;
     private RingBuffer<TransferRingBufferEvent> ringBuffer;
 
-    public BalanceStateMachine(KafkaProducerService kafkaProducerService, ConfigAccountTypeRepository configRepo, TransactionDao transactionDao, LedgerBookDao ledgerBookDao, SnowflakeIdGenerator snowflakeIdGenerator) {
+    public BalanceStateMachine(KafkaProducerService kafkaProducerService, ConfigService configService, RocksDBService rocksDBService) {
         this.kafkaProducerService = kafkaProducerService;
-        this.configRepo = configRepo;
-        this.transactionDao = transactionDao;
-        this.ledgerBookDao = ledgerBookDao;
-        this.snowflakeIdGenerator = snowflakeIdGenerator;
+        this.configService = configService;
+        this.rocksDBService = rocksDBService;
     }
 
     @Override
@@ -81,12 +70,10 @@ public class BalanceStateMachine extends BaseStateMachine {
             throw new IOException("Failed to initialize RocksDB", e);
         }
 
-        log.info("DEBUG: Initializing Disruptor...");
         this.disruptor = new Disruptor<>(TransferRingBufferEvent::new, 1024, DaemonThreadFactory.INSTANCE);
-        final BalanceUpdateEventHandler handler = new BalanceUpdateEventHandler(this.db, this.l1Cache, this.kafkaProducerService, this.configRepo, this.transactionDao, this.ledgerBookDao, this.snowflakeIdGenerator);
+        final BalanceUpdateEventHandler handler = new BalanceUpdateEventHandler(this.kafkaProducerService, this.configService, this.rocksDBService);
         this.disruptor.handleEventsWith(handler);
         this.ringBuffer = this.disruptor.start();
-        log.info("DEBUG: Disruptor started.");
     }
 
     private static final EventTranslatorVararg<TransferRingBufferEvent> BATCH_TRANSLATOR = (event, sequence, args) -> {
@@ -108,7 +95,7 @@ public class BalanceStateMachine extends BaseStateMachine {
 
     @Override
     public CompletableFuture<Message> applyTransaction(TransactionContext trx) {
-        log.info("DEBUG: [StateMachine] applyTransaction START. Index={}", trx.getLogEntry().getIndex());
+        log.info("[BalanceStateMachine] applyTransaction START. Index={}", trx.getLogEntry().getIndex());
 
         final byte[] logData = trx.getStateMachineLogEntry().getLogData().toByteArray();
         final BatchCommand command = JSON.parseObject(logData, BatchCommand.class);
@@ -117,17 +104,17 @@ public class BalanceStateMachine extends BaseStateMachine {
         final long sequenceId = command.getSequenceId();
 
         if (isDuplicate(clientId, sequenceId)) {
-            log.warn("DEBUG: [StateMachine] Duplicate request detected. ClientId={}, SequenceId={}", clientId, sequenceId);
+            log.warn("[BalanceStateMachine] Duplicate request detected. ClientId={}, SequenceId={}", clientId, sequenceId);
             return CompletableFuture.completedFuture(Message.valueOf("Duplicate request"));
         }
 
-        log.info("DEBUG: [StateMachine] Publishing {} events to RingBuffer using publishEvents...", command.getEvents().size());
+        log.info("[BalanceStateMachine] Publishing {} events to RingBuffer using publishEvents...", command.getEvents().size());
         var events = command.getEvents().toArray(new TransactionEventDto[0]);
         ringBuffer.publishEvents(BATCH_TRANSLATOR, events);
-        log.info("DEBUG: [StateMachine] All events published to RingBuffer.");
+        log.info("[BalanceStateMachine] All events published to RingBuffer.");
 
         clientSequenceIds.put(clientId, sequenceId);
-        log.info("DEBUG: [StateMachine] applyTransaction END. Returning OK to Raft framework.");
+        log.info("[BalanceStateMachine] applyTransaction END. Returning OK to Raft framework.");
         return CompletableFuture.completedFuture(Message.valueOf("OK"));
     }
 
@@ -139,16 +126,11 @@ public class BalanceStateMachine extends BaseStateMachine {
         final AccountIdDto accountId = command.getAccountId();
         final ReadConsistency consistency = command.getReadConsistency();
 
-        switch (consistency) {
-            case STRONG:
-                return queryStrong(accountId);
-            case BOUNDED:
-                return queryBounded(accountId);
-            case EVENTUAL:
-                return queryEventual(accountId);
-            default:
-                return CompletableFuture.failedFuture(new IllegalArgumentException("Unknown read consistency level"));
-        }
+        return switch (consistency) {
+            case STRONG -> queryStrong(accountId);
+            case BOUNDED -> queryBounded(accountId);
+            case EVENTUAL -> queryEventual(accountId);
+        };
     }
 
     private CompletableFuture<Message> queryStrong(AccountIdDto accountId) {
@@ -165,12 +147,8 @@ public class BalanceStateMachine extends BaseStateMachine {
     }
 
     private CompletableFuture<Message> queryEventual(AccountIdDto accountId) {
-        BigDecimal balance = l1Cache.getIfPresent(accountId);
-        if (balance == null) {
-            balance = readFromRocksDB(accountId);
-            l1Cache.put(accountId, balance);
-        }
-        return CompletableFuture.completedFuture(Message.valueOf(balance.toString()));
+        BigDecimal balance = rocksDBService.queryEventual(accountId);
+        return CompletableFuture.completedFuture(Message.valueOf(balance.toPlainString()));
     }
 
     private BigDecimal readFromRocksDB(AccountIdDto accountId) {
@@ -214,9 +192,7 @@ public class BalanceStateMachine extends BaseStateMachine {
     public void close() throws IOException {
         super.close();
         if (disruptor != null) {
-            log.info("DEBUG: Shutting down Disruptor...");
             disruptor.shutdown();
-            log.info("DEBUG: Disruptor shut down.");
         }
         if (db != null) {
             db.close();

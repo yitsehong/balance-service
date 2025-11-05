@@ -13,19 +13,11 @@ public class BalanceDto {
     private final AccountIdDto accountIdDto;
     @Setter
     @Getter
-    private String coinSymbol;
-    @Setter
-    @Getter
     private BigDecimal amount;
-    @Setter
-    @Getter
-    private String accountTag;
 
-    public BalanceDto(AccountIdDto accountIdDto, String coinSymbol, BigDecimal initialAmount, String accountTag) {
+    public BalanceDto(AccountIdDto accountIdDto, BigDecimal initialAmount) {
         this.accountIdDto = accountIdDto;
-        this.coinSymbol = coinSymbol;
         this.amount = initialAmount;
-        this.accountTag = accountTag;
     }
 
     public AccountIdDto getAccountId() {
