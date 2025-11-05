@@ -5,11 +5,7 @@ import org.springframework.stereotype.Service;
 
 import javax.annotation.PostConstruct;
 import javax.annotation.PreDestroy;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.ThreadFactory;
-import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicLong;
 
 @Service
@@ -29,6 +25,7 @@ public class BatchTransferProcessorService {
         // Create a ThreadFactory that names the threads for easier debugging.
         final ThreadFactory threadFactory = new ThreadFactory() {
             private final AtomicLong count = new AtomicLong(0);
+
             @Override
             public Thread newThread(Runnable r) {
                 Thread thread = new Thread(r);

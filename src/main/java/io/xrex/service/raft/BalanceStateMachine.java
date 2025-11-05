@@ -25,6 +25,7 @@ import org.rocksdb.Checkpoint;
 import org.rocksdb.Options;
 import org.rocksdb.RocksDB;
 import org.rocksdb.RocksDBException;
+import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.kafka.core.KafkaTemplate;
 
@@ -39,17 +40,34 @@ import java.util.concurrent.ConcurrentHashMap;
 @Slf4j
 public class BalanceStateMachine extends BaseStateMachine {
 
-    private final Map<String, Long> clientSequenceIds = new ConcurrentHashMap<>();
-    private RocksDB db;
-    private File dbDir;
-    private RaftGroupId groupId;
+    // 1. 修改 Translator 類型為 EventTranslatorOneArg，並專注於處理單個 DTO
+    private static final EventTranslatorOneArg<TransferRingBufferEvent, TransactionEventDto> TRANSACTION_EVENT_TRANSLATOR =
+            (event, sequence, eventData) -> {
+                event.setEventKey(eventData.getEventKey());
+                event.setFromChainupId(eventData.getFrom().getChainupId());
+                event.setFromAssetType(eventData.getFrom().getAssetType());
+                event.setToChainupId(eventData.getTo().getChainupId());
+                event.setToAssetType(eventData.getTo().getAssetType());
+                event.setAmount(eventData.getTo().getAmount());
+                event.setScene(eventData.getFrom().getScene());
+                event.setRefType(eventData.getFrom().getRefType());
+                event.setRefId(eventData.getFrom().getRefId());
+                event.setMeta(eventData.getMeta());
+                event.setOpUid(eventData.getOpUid());
+                event.setOpIp(eventData.getOpIp());
 
-    @Value("${app.kafka.balance-transfer.topic}")
-    private String topic;
+                CompletableFuture<String> future = new CompletableFuture<>();
+                event.setFuture(future);
+            };
+    private final Map<String, Long> clientSequenceIds = new ConcurrentHashMap<>();
     private final KafkaTemplate<String, TransactionEventDto> kafkaTemplate;
     private final ConfigService configService;
     private final RocksDBService rocksDBService;
-
+    private RocksDB db;
+    private File dbDir;
+    private RaftGroupId groupId;
+    @Value("${app.kafka.balance-transfer.topic}")
+    private String topic;
     private Disruptor<TransferRingBufferEvent> disruptor;
     private RingBuffer<TransferRingBufferEvent> ringBuffer;
 
@@ -80,53 +98,32 @@ public class BalanceStateMachine extends BaseStateMachine {
         this.ringBuffer = this.disruptor.start();
     }
 
-    // 1. 修改 Translator 類型為 EventTranslatorOneArg，並專注於處理單個 DTO
-    private static final EventTranslatorOneArg<TransferRingBufferEvent, TransactionEventDto> TRANSACTION_EVENT_TRANSLATOR =
-            (event, sequence, eventData) -> {
-                event.setEventKey(eventData.getEventKey());
-                event.setFromChainupId(eventData.getFrom().getChainupId());
-                event.setFromAssetType(eventData.getFrom().getAssetType());
-                event.setToChainupId(eventData.getTo().getChainupId());
-                event.setToAssetType(eventData.getTo().getAssetType());
-                event.setAmount(eventData.getTo().getAmount());
-                event.setScene(eventData.getFrom().getScene());
-                event.setRefType(eventData.getFrom().getRefType());
-                event.setRefId(eventData.getFrom().getRefId());
-                event.setMeta(eventData.getMeta());
-                event.setOpUid(eventData.getOpUid());
-                event.setOpIp(eventData.getOpIp());
-
-                CompletableFuture<String> future = new CompletableFuture<>();
-                event.setFuture(future);
-            };
-
     @Override
     public CompletableFuture<Message> applyTransaction(TransactionContext trx) {
-        log.info("[BalanceStateMachine] applyTransaction START. Index={}", trx.getLogEntry().getIndex());
+        try {
+            final byte[] logData = trx.getStateMachineLogEntry().getLogData().toByteArray();
+            final BatchCommand command = JSON.parseObject(logData, BatchCommand.class);
 
-        final byte[] logData = trx.getStateMachineLogEntry().getLogData().toByteArray();
-        final BatchCommand command = JSON.parseObject(logData, BatchCommand.class);
+            final String clientId = command.getClientId();
+            final long sequenceId = command.getSequenceId();
 
-        final String clientId = command.getClientId();
-        final long sequenceId = command.getSequenceId();
+            if (isDuplicate(clientId, sequenceId)) {
+                log.warn("[BalanceStateMachine] Duplicate request detected. ClientId={}, SequenceId={}", clientId, sequenceId);
+                return CompletableFuture.completedFuture(Message.valueOf("Duplicate request"));
+            }
+            MDC.put("eventKeys", command.getEvents().get(0).getEventKey());
+            log.info("[BalanceStateMachine] Publishing {} events to RingBuffer...", command.getEvents().size());
 
-        if (isDuplicate(clientId, sequenceId)) {
-            log.warn("[BalanceStateMachine] Duplicate request detected. ClientId={}, SequenceId={}", clientId, sequenceId);
-            return CompletableFuture.completedFuture(Message.valueOf("Duplicate request"));
+            // 2. 修改發布邏輯：遍歷 DTO 列表，為每個 DTO 單獨發布一個事件
+            for (TransactionEventDto eventDto : command.getEvents()) {
+                ringBuffer.publishEvent(TRANSACTION_EVENT_TRANSLATOR, eventDto);
+            }
+            clientSequenceIds.put(clientId, sequenceId);
+            log.info("[BalanceStateMachine] applyTransaction END. Returning OK to Raft framework.");
+            return CompletableFuture.completedFuture(Message.valueOf("OK"));
+        } finally {
+            MDC.remove("eventKeys");
         }
-
-        log.info("[BalanceStateMachine] Publishing {} events to RingBuffer...", command.getEvents().size());
-
-        // 2. 修改發布邏輯：遍歷 DTO 列表，為每個 DTO 單獨發布一個事件
-        for (TransactionEventDto eventDto : command.getEvents()) {
-            ringBuffer.publishEvent(TRANSACTION_EVENT_TRANSLATOR, eventDto);
-        }
-
-        log.info("[BalanceStateMachine] All events published to RingBuffer.");
-
-        clientSequenceIds.put(clientId, sequenceId);
-        log.info("[BalanceStateMachine] applyTransaction END. Returning OK to Raft framework.");
-        return CompletableFuture.completedFuture(Message.valueOf("OK"));
     }
 
     // ... (其餘程式碼保持不變) ...

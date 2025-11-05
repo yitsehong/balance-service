@@ -1,4 +1,3 @@
-
 package io.xrex.service;
 
 import com.alibaba.fastjson2.JSON;
@@ -34,12 +33,11 @@ import java.util.concurrent.TimeUnit;
 public class RocksDBService {
 
     private final String DB_PATH = "rocksdb_balances";
-    private RocksDB db;
     private final Cache<AccountIdDto, BigDecimal> l1Cache = Caffeine.newBuilder()
             .maximumSize(10_000).expireAfterWrite(1, TimeUnit.SECONDS).build();
-
     private final ConfigService configService;
     private final AccountRepository accountRepository;
+    private RocksDB db;
 
     public RocksDBService(ConfigService configService, AccountRepository accountRepository) {
         this.configService = configService;
@@ -76,9 +74,6 @@ public class RocksDBService {
             // Get balances from the cache
             BalanceDto fromAccountBalance = findById(fromAccountId).orElse(new BalanceDto(fromAccountId, BigDecimal.ZERO));
             BalanceDto toAccountBalance = findById(toAccountId).orElse(new BalanceDto(toAccountId, BigDecimal.ZERO));
-            log.info("[RocksDBService] updateBalanceOnRocksDB fromAccountBalance: {}, toAccountBalance: {}",
-                    fromAccountBalance, toAccountBalance);
-
             // Check for sufficient funds
             boolean ignoreCheck = fromAccountId.getChainupId() == 1; // Assuming chainupId 1 is a system/internal account
             if (!ignoreCheck && fromAccountBalance.getAmount().compareTo(amount) < 0) {
@@ -144,7 +139,6 @@ public class RocksDBService {
     }
 
     private void warmUpCacheFromDB() {
-        log.info("Starting RocksDB cache warm-up from MySQL...");
         List<AccountEntity> allAccounts = accountRepository.findAll();
         for (AccountEntity account : allAccounts) {
             ConfigAccountTypeEntity configAccountType = configService.findByAssetType(account.getType());
@@ -184,7 +178,6 @@ public class RocksDBService {
     public void close() {
         if (db != null) {
             db.close();
-            log.info("RocksDB closed.");
         }
     }
 }

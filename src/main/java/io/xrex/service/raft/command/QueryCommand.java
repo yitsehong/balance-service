@@ -1,7 +1,7 @@
 package io.xrex.service.raft.command;
 
-import io.xrex.model.dto.AccountIdDto;
 import io.xrex.enums.ReadConsistency;
+import io.xrex.model.dto.AccountIdDto;
 import lombok.Getter;
 
 @Getter

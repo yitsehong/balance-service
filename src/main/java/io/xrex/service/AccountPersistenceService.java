@@ -32,10 +32,9 @@ public class AccountPersistenceService {
         }
         // TODO avoid duplicated
         try {
-            long time1 = System.currentTimeMillis();
+            long start = System.currentTimeMillis();
             List<TransactionEventDto> events = records.stream().map(ConsumerRecord::value).toList();
             ledgerBookService.produceLedgerBook(events);
-            long time2 = System.currentTimeMillis();
 
             // Step 1: Aggregate balance changes for each account
             Map<AccountIdDto, BigDecimal> balanceAdjustments = events.stream()
@@ -48,7 +47,7 @@ public class AccountPersistenceService {
 
             // Each mini-batch is processed in its own transaction via batchTransfer
             transferService.batchTransfer(balanceAdjustments, transactions);
-            log.info("Successfully persisted of event size={}, balanceAdjustments size={}, time1={}ms, time2={}ms", events.size(), balanceAdjustments.size(), time2 - time1, System.currentTimeMillis() - time2);
+            log.info("Successfully persisted of event size={}, balanceAdjustments size={}, time={}ms", events.size(), balanceAdjustments.size(), System.currentTimeMillis() - start);
         } catch (Exception e) {
             // Log the error for the specific mini-batch and continue with the next
             // This enhances resilience, preventing one bad batch from stopping the entire poll.

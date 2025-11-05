@@ -8,6 +8,7 @@ import io.xrex.model.entity.ConfigAccountTypeEntity;
 import io.xrex.service.ConfigService;
 import io.xrex.service.RocksDBService;
 import lombok.extern.slf4j.Slf4j;
+import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.kafka.core.KafkaTemplate;
 
@@ -18,9 +19,7 @@ public class BalanceUpdateEventHandler implements EventHandler<TransferRingBuffe
     private final ConfigService configService;
     private final RocksDBService rocksDBService;
 
-    public BalanceUpdateEventHandler(@Value("${app.kafka.balance-transfer.topic}") String topic,
-                                     KafkaTemplate<String, TransactionEventDto> kafkaTemplate,
-                                     ConfigService configService, RocksDBService rocksDBService) {
+    public BalanceUpdateEventHandler(@Value("${app.kafka.balance-transfer.topic}") String topic, KafkaTemplate<String, TransactionEventDto> kafkaTemplate, ConfigService configService, RocksDBService rocksDBService) {
         this.topic = topic;
         this.kafkaTemplate = kafkaTemplate;
         this.configService = configService;
@@ -29,8 +28,8 @@ public class BalanceUpdateEventHandler implements EventHandler<TransferRingBuffe
 
     @Override
     public void onEvent(TransferRingBufferEvent event, long sequence, boolean endOfBatch) {
+        MDC.put("eventKeys", event.getEventKey());
         try {
-            log.info("[BalanceUpdateEventHandler] Received event: {}", event);
             ConfigAccountTypeEntity fromConfigAccountType = configService.findByAssetType(event.getFromAssetType());
             AccountIdDto fromAccountId = new AccountIdDto(event.getFromChainupId(), fromConfigAccountType);
 
@@ -50,6 +49,7 @@ public class BalanceUpdateEventHandler implements EventHandler<TransferRingBuffe
             event.getFuture().completeExceptionally(e); // 其他未知異常
         } finally {
             event.clear(); // 清理 Event 以便重用
+            MDC.remove("eventKeys");
         }
     }
 

@@ -7,7 +7,10 @@ import org.slf4j.MDC;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.*;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -54,22 +57,18 @@ public class BatchTransferProcessor implements Runnable {
     }
 
     private void processBatch(List<TransferRaftRequest> batch) {
-        // 將批次中的所有 eventKey 收集起來，放入 MDC，方便日誌追蹤
-        String eventKeys = batch.stream().map(r -> r.getEvent().getEventKey())
-                                     .collect(Collectors.joining(","));
-        MDC.put("eventKeys", eventKeys);
+        MDC.put("eventKeys", batch.get(0).getEvent().getEventKey());
         try {
             log.info("[BatchTransferProcessor] Processing batch of {} events.", batch.size());
             List<TransactionEventDto> events = batch.stream().map(TransferRaftRequest::getEvent).toList();
             CompletableFuture<RaftClientReply> batchFuture = raftClient.sendBatch(events);
             batchFuture.whenComplete((reply, ex) -> {
                 if (ex != null) {
-                    log.error("Batch processing failed.", ex);
+                    log.error("[BatchTransferProcessor] Batch processing failed.", ex);
                     for (TransferRaftRequest request : batch) {
                         request.getFuture().completeExceptionally(ex);
                     }
                 } else {
-                    log.info("[BatchTransferProcessor] Batch processing successful.");
                     for (TransferRaftRequest request : batch) {
                         request.getFuture().complete(reply);
                     }

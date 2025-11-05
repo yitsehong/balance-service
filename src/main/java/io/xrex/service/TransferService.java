@@ -1,5 +1,6 @@
 package io.xrex.service;
 
+import io.xrex.enums.ReadConsistency;
 import io.xrex.model.dto.AccountIdDto;
 import io.xrex.model.dto.event.TransactionEventDto;
 import io.xrex.model.entity.LedgerBookEntity;
@@ -7,7 +8,6 @@ import io.xrex.model.entity.TransactionEntity;
 import io.xrex.repository.TransactionDao;
 import io.xrex.service.raft.BatchTransferProcessorService;
 import io.xrex.service.raft.CustomRaftClient;
-import io.xrex.enums.ReadConsistency;
 import io.xrex.service.raft.TransferRaftRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.ratis.protocol.RaftClientReply;

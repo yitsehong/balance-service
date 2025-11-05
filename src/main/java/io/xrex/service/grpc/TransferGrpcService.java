@@ -51,7 +51,7 @@ public class TransferGrpcService extends TransferServiceGrpc.TransferServiceImpl
                 .map(this::processSingleTransfer).toList();
 
         CompletableFuture<?>[] allFutures = futures.stream()
-                 .flatMap(map -> map.values().stream()).toArray(CompletableFuture[]::new);
+                .flatMap(map -> map.values().stream()).toArray(CompletableFuture[]::new);
 
         CompletableFuture.allOf(allFutures)
                 .whenComplete((voidResult, throwable) -> {
@@ -61,7 +61,7 @@ public class TransferGrpcService extends TransferServiceGrpc.TransferServiceImpl
                         responseObserver.onError(status.asRuntimeException());
                     } else {
                         List<String> eventKeys = futures.stream()
-                                 .flatMap(map -> map.keySet().stream()).toList();
+                                .flatMap(map -> map.keySet().stream()).toList();
 
                         TransferResponse response = TransferResponse.newBuilder()
                                 .setSuccess(true)
