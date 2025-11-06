@@ -89,7 +89,7 @@ public class TransferGrpcService extends TransferServiceGrpc.TransferServiceImpl
      * 處理餘額查詢請求，使用 EVENTUAL 一致性從 Raft 狀態機讀取。
      */
     @Override
-    public void GetLedgerFromMemory(LedgerRequest request, StreamObserver<LedgerResponse> responseObserver) {
+    public void getLedgerFromMemory(LedgerRequest request, StreamObserver<LedgerResponse> responseObserver) {
         AccountIdDto accountId = findAccountIdByChainupIdAndAssetType(request.getChainupId(), request.getType());
         raftClient.queryBalance(accountId, ReadConsistency.EVENTUAL)
                 .whenComplete((reply, ex) -> {
@@ -133,7 +133,8 @@ public class TransferGrpcService extends TransferServiceGrpc.TransferServiceImpl
             Map<String, List<LedgerResponse>> result = results.stream().collect(Collectors.groupingBy(LedgerResponse::getCurrency));
             BalanceResponse.Builder responseBuilder = BalanceResponse.newBuilder();
             for (Map.Entry<String, List<LedgerResponse>> entry : result.entrySet()) {
-                responseBuilder.getCoinLedgersMap().put(entry.getKey(), LedgerListResponse.newBuilder().addAllLedgers(entry.getValue()).build());
+                LedgerListResponse ledgers = LedgerListResponse.newBuilder().addAllLedgers(entry.getValue()).build();
+                responseBuilder.putCoinLedgers(entry.getKey(), ledgers);
             }
             responseObserver.onNext(responseBuilder.build());
             responseObserver.onCompleted();
