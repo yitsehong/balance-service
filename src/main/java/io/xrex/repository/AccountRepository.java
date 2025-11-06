@@ -19,6 +19,7 @@ public interface AccountRepository extends JpaRepository<AccountEntity, Long> {
     @Query("SELECT a FROM AccountEntity a WHERE a.id = :id")
     AccountEntity findByIdForUpdate(Long id);
 
+    List<AccountEntity> findByUid(Integer chainupId);
     AccountEntity findByUidAndType(Integer chainupId, Integer type);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)

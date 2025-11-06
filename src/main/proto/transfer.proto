@@ -12,8 +12,11 @@ service TransferService {
   // Creates a new transfer
   rpc Transfer (TransferListRequest) returns (TransferResponse) {}
 
-  // Get balance from memory
-  rpc GetBalanceFromMemory (BalanceRequest) returns (BalanceResponse) {}
+  // Get ledger from memory
+  rpc GetLedgerFromMemory (LedgerRequest) returns (LedgerResponse) {}
+
+  // Get ledger from DB
+  rpc GetLedgerFromDB (LedgerRequest) returns (LedgerResponse) {}
 
   // Get balance from DB
   rpc GetBalanceFromDB (BalanceRequest) returns (BalanceResponse) {}
@@ -48,18 +51,30 @@ message TransferResponse {
   string message = 3;
 }
 
-message BalanceRequest {
-  int32 uid = 1;
+message LedgerRequest {
+  int32 chainup_id = 1;
   int32 type = 2;
 }
 
-message BalanceResponse {
+message LedgerResponse {
   int64 id = 1;
-  int32 uid = 2;
+  int32 chainup_id = 2;
   int32 type = 3;
   string balance = 4;
   string currency = 5;
   string tag = 6;
-  google.protobuf.Timestamp created_time = 7;
-  google.protobuf.Timestamp updated_time = 8;
+  string created_time = 7;
+  string updated_time = 8;
+}
+
+message BalanceRequest {
+  int32 chainup_id = 1;
+}
+
+message LedgerListResponse {
+  repeated LedgerResponse ledgers = 1;
+}
+
+message BalanceResponse {
+  map<string, LedgerListResponse> coin_ledgers = 1;
 }

@@ -1,10 +1,13 @@
 package io.xrex.util;
 
+import java.time.format.DateTimeFormatter;
+
 public final class XrexConstant {
 
     public static final Integer SYSTEM_CHAINUP_ID = 1;
 
     public static final String ISO_DATE_FORMAT = "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'";
+    public static final DateTimeFormatter ISO_DATE_FORMATTER = DateTimeFormatter.ofPattern(ISO_DATE_FORMAT);
 
     /**
      * HTTP POST请求

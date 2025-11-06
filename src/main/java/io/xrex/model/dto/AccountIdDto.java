@@ -7,6 +7,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.io.Serializable;
+import java.util.Objects;
 
 @Data
 @Builder
@@ -36,10 +37,24 @@ public class AccountIdDto implements Serializable, Comparable<AccountIdDto> {
     }
 
     @Override
+    public boolean equals(Object o) {
+        if (o == null || getClass() != o.getClass()) return false;
+        AccountIdDto that = (AccountIdDto) o;
+        return Objects.equals(chainupId, that.chainupId) && Objects.equals(assetType, that.assetType) && Objects.equals(coinSymbol, that.coinSymbol) && Objects.equals(accountTag, that.accountTag);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(chainupId, assetType, coinSymbol, accountTag);
+    }
+
+    @Override
     public String toString() {
         return "AccountIdDto{" +
                 "chainupId=" + chainupId +
                 ", assetType=" + assetType +
+                ", coinSymbol='" + coinSymbol + '\'' +
+                ", accountTag='" + accountTag + '\'' +
                 '}';
     }
 }
