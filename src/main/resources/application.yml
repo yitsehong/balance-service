@@ -16,7 +16,7 @@ spring:
     timeout-per-shutdown-phase: 30s
   datasource:
     # Replace with your MySQL connection details
-    url: jdbc:mysql://localhost:13306/exchange_victor?characterEncoding=utf-8&zeroDateTimeBehavior=convertToNull&autoReconnect=true&rewriteBatchedStatements=true&allowMultiQueries=true&useSSL=false
+    url: jdbc:mysql://localhost:13306/exchange?characterEncoding=utf-8&zeroDateTimeBehavior=convertToNull&autoReconnect=true&rewriteBatchedStatements=true&allowMultiQueries=true&useSSL=false
     username: exchange
     password: abcd1234
     driver-class-name: com.mysql.cj.jdbc.Driver
@@ -68,7 +68,7 @@ spring:
         jaas:
           config:
     consumer:
-      max-poll-records: 5000
+      max-poll-records: 2000
       auto-offset-reset: earliest
 
 # ===================================================================

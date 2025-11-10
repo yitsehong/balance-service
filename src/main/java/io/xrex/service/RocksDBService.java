@@ -17,14 +17,20 @@ import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
 import org.rocksdb.*;
 import org.slf4j.MDC;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 
 import java.io.File;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
-import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 @Slf4j
 @Service
@@ -32,7 +38,7 @@ public class RocksDBService {
 
     private final String DB_PATH = "rocksdb_balances";
     private final Cache<AccountIdDto, BigDecimal> l1Cache = Caffeine.newBuilder()
-            .maximumSize(10_000).expireAfterWrite(1, TimeUnit.SECONDS).build();
+            .maximumSize(1000_000).expireAfterWrite(50, TimeUnit.SECONDS).build();
     private final ConfigService configService;
     private final AccountRepository accountRepository;
     private RocksDB db;
@@ -153,14 +159,91 @@ public class RocksDBService {
     }
 
     private void warmUpCacheFromDB() {
-        List<AccountEntity> allAccounts = accountRepository.findAll();
-        for (AccountEntity account : allAccounts) {
-            ConfigAccountTypeEntity configAccountType = configService.findByAssetType(account.getType());
-            AccountIdDto accountId = new AccountIdDto(account.getUid(), configAccountType);
-            BalanceDto balance = new BalanceDto(accountId, account.getBalance());
-            save(JSON.toJSONBytes(accountId), JSON.toJSONBytes(balance));
+        int pageSize = 5000;
+        int threadPoolSize = Runtime.getRuntime().availableProcessors(); // 或自定義執行緒數
+
+        // 先取得總頁數
+        Pageable initialPageable = PageRequest.of(0, pageSize);
+        Page<AccountEntity> firstPage = accountRepository.findAll(initialPageable);
+        int totalPages = firstPage.getTotalPages();
+        long totalElements = firstPage.getTotalElements();
+
+        log.info("Starting cache warm-up with {} threads for {} pages, total {} accounts",
+                threadPoolSize, totalPages, totalElements);
+
+        ExecutorService executorService = Executors.newFixedThreadPool(threadPoolSize);
+        CountDownLatch latch = new CountDownLatch(totalPages);
+        AtomicInteger processedCount = new AtomicInteger(0);
+        AtomicInteger errorCount = new AtomicInteger(0);
+
+        try {
+            // 提交所有分頁任務
+            for (int pageNumber = 0; pageNumber < totalPages; pageNumber++) {
+                final int currentPage = pageNumber;
+                executorService.submit(() -> {
+                    try {
+                        processPage(currentPage, pageSize, processedCount);
+                    } catch (Exception e) {
+                        errorCount.incrementAndGet();
+                        log.error("Error processing page {}: {}", currentPage, e.getMessage(), e);
+                    } finally {
+                        latch.countDown();
+                        int processed = processedCount.get();
+                        if (processed % 10000 == 0 || currentPage % 10 == 0) {
+                            log.info("Progress: processed {} accounts from {} pages",
+                                    processed, currentPage + 1);
+                        }
+                    }
+                });
+            }
+
+            // 等待所有任務完成
+            latch.await();
+
+            log.info("Finished warming up cache: {} accounts processed, {} errors, {} total pages",
+                    processedCount.get(), errorCount.get(), totalPages);
+
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.error("Cache warm-up interrupted", e);
+        } finally {
+            executorService.shutdown();
+            try {
+                if (!executorService.awaitTermination(60, TimeUnit.SECONDS)) {
+                    executorService.shutdownNow();
+                }
+            } catch (InterruptedException e) {
+                executorService.shutdownNow();
+                Thread.currentThread().interrupt();
+            }
         }
-        log.info("Finished warming up cache for {} accounts.", allAccounts.size());
+    }
+
+    private void processPage(int pageNumber, int pageSize, AtomicInteger processedCount) {
+        Pageable pageable = PageRequest.of(pageNumber, pageSize);
+        Page<AccountEntity> page = accountRepository.findAll(pageable);
+
+        int pageProcessed = 0;
+        for (AccountEntity account : page.getContent()) {
+            try {
+                ConfigAccountTypeEntity configAccountType = configService.findByAssetType(account.getType());
+                if (configAccountType == null) {
+                    continue;
+                }
+
+                AccountIdDto accountId = new AccountIdDto(account.getUid(), configAccountType);
+                BalanceDto balance = new BalanceDto(accountId, account.getBalance());
+                save(JSON.toJSONBytes(accountId), JSON.toJSONBytes(balance));
+
+                pageProcessed++;
+            } catch (Exception e) {
+                log.error("Error processing account uid={}, type={}: {}",
+                        account.getUid(), account.getType(), e.getMessage());
+            }
+        }
+
+        processedCount.addAndGet(pageProcessed);
+        log.debug("Completed page {} with {} accounts", pageNumber, pageProcessed);
     }
 
     private Optional<BalanceDto> findById(AccountIdDto accountId) {

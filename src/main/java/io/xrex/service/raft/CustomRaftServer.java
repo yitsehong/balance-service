@@ -1,5 +1,6 @@
 package io.xrex.service.raft;
 
+import lombok.extern.slf4j.Slf4j;
 import org.apache.ratis.conf.RaftProperties;
 import org.apache.ratis.grpc.GrpcConfigKeys;
 import org.apache.ratis.protocol.RaftGroup;
@@ -16,9 +17,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Comparator;
 
+@Slf4j
 public class CustomRaftServer {
 
-    private static final Logger LOG = LoggerFactory.getLogger(CustomRaftServer.class);
     private final RaftServer server;
 
     public CustomRaftServer(BalanceStateMachine stateMachine, String raftId, RaftGroup raftGroup, int port) throws IOException {
@@ -31,14 +32,14 @@ public class CustomRaftServer {
         // DEV-ONLY: Clean up storage directory on startup to prevent format errors
         // TODO OPTIMIZE
         if (storageDir.exists()) {
-            LOG.warn("DEVELOPMENT MODE: Deleting existing Raft storage directory: {}", storageDir);
+            log.warn("DEVELOPMENT MODE: Deleting existing Raft storage directory: {}", storageDir);
             try {
                 Files.walk(storageDir.toPath())
                         .sorted(Comparator.reverseOrder())
                         .map(Path::toFile)
                         .forEach(File::delete);
             } catch (IOException e) {
-                LOG.error("Failed to delete Raft storage directory.", e);
+                log.error("Failed to delete Raft storage directory.", e);
                 throw e;
             }
         }
