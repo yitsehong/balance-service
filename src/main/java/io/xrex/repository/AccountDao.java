@@ -12,6 +12,7 @@ import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 
@@ -36,7 +37,7 @@ public class AccountDao {
                 BigDecimal adjustment = entry.getValue();
 
                 ps.setBigDecimal(1, adjustment);
-                ps.setTimestamp(2, Timestamp.valueOf(LocalDateTime.now()));
+                ps.setTimestamp(2, Timestamp.valueOf(LocalDateTime.now(ZoneOffset.UTC)));
                 ps.setInt(3, accountId.getChainupId());
                 ps.setInt(4, accountId.getAssetType());
             }

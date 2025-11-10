@@ -17,6 +17,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -81,7 +82,7 @@ public class TransferService {
     }
 
     private AccountEntity buildNewAccount(AccountIdDto accountId, BigDecimal initialBalance) {
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
         AccountEntity account = new AccountEntity();
         account.setUid(accountId.getChainupId());
         account.setType(accountId.getAssetType());
@@ -116,7 +117,7 @@ public class TransferService {
         transaction.setRefId(fromLedger.getRefId());
         transaction.setOpUid(event.getOpUid());
         transaction.setOpIp(event.getOpIp());
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
         transaction.setCtime(now);
         transaction.setMtime(now);
         transaction.fingerprint();

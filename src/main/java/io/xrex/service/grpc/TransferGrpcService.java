@@ -1,16 +1,20 @@
 package io.xrex.service.grpc;
 
+import com.alibaba.fastjson2.JSON;
+import com.google.common.base.Strings;
 import io.grpc.Status;
 import io.grpc.stub.StreamObserver;
 import io.xrex.enums.ReadConsistency;
 import io.xrex.grpc.*;
 import io.xrex.model.dto.AccountIdDto;
+import io.xrex.model.dto.IdempotencyRecordDto;
 import io.xrex.model.dto.event.TransactionEventDto;
 import io.xrex.model.entity.AccountEntity;
 import io.xrex.model.entity.ConfigAccountTypeEntity;
 import io.xrex.model.entity.LedgerBookEntity;
 import io.xrex.repository.AccountRepository;
 import io.xrex.service.ConfigService;
+import io.xrex.service.IdempotencyService;
 import io.xrex.service.raft.BatchTransferProcessorService;
 import io.xrex.service.raft.CustomRaftClient;
 import io.xrex.service.raft.TransferRaftRequest;
@@ -23,6 +27,7 @@ import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
@@ -41,47 +46,116 @@ public class TransferGrpcService extends TransferServiceGrpc.TransferServiceImpl
     private final SnowflakeIdGenerator snowflakeIdGenerator;
     private final ConfigService configService;
     private final AccountRepository accountRepository;
+    private final IdempotencyService idempotencyService;
 
     public TransferGrpcService(BatchTransferProcessorService batchTransferProcessorService, CustomRaftClient raftClient,
                                SnowflakeIdGenerator snowflakeIdGenerator, ConfigService configService,
-                               AccountRepository accountRepository) {
+                               AccountRepository accountRepository, IdempotencyService idempotencyService) {
         this.batchTransferProcessorService = batchTransferProcessorService;
         this.raftClient = raftClient;
         this.snowflakeIdGenerator = snowflakeIdGenerator;
         this.configService = configService;
         this.accountRepository = accountRepository;
+        this.idempotencyService = idempotencyService;
     }
 
     /**
      * 處理轉帳請求，將其提交到 Raft 批次處理器。
+     * 此方法現在具備冪等性。
      */
     @Override
     public void transfer(TransferListRequest request, StreamObserver<TransferResponse> responseObserver) {
-        List<Map<String, CompletableFuture<RaftClientReply>>> futures = request.getRequestsList().stream()
-                .map(this::processSingleTransfer).toList();
+        List<String> cachedEventKeys = new ArrayList<>();
+        List<CompletableFuture<String>> processingFutures = new ArrayList<>();
 
-        CompletableFuture<?>[] allFutures = futures.stream()
-                .flatMap(map -> map.values().stream()).toArray(CompletableFuture[]::new);
+        for (TransferRequest grpcRequest : request.getRequestsList()) {
+            // 1. 檢查 request_id
+            if (Strings.isNullOrEmpty(grpcRequest.getRequestId())) {
+                responseObserver.onError(Status.INVALID_ARGUMENT
+                        .withDescription("request_id is required for idempotency.")
+                        .asRuntimeException());
+                return;
+            }
 
-        CompletableFuture.allOf(allFutures)
+            // 2. 檢查冪等性紀錄
+            Optional<IdempotencyRecordDto> recordOpt = idempotencyService.findRecord(grpcRequest.getRequestId());
+
+            if (recordOpt.isPresent()) {
+                // 3a. 紀錄已存在，直接從快取處理
+                IdempotencyRecordDto record = recordOpt.get();
+                if ("SUCCESS".equals(record.getStatus())) {
+                    TransferResponse cachedResponse = JSON.parseObject(record.getResponseData(), TransferResponse.class);
+                    cachedEventKeys.addAll(cachedResponse.getEventKeyList());
+                }
+                // 如果是失敗的紀錄，我們這次將其視為新請求重新處理
+            } else {
+                // 3b. 新請求，提交給Raft處理
+                processingFutures.add(processAndSaveTransfer(grpcRequest));
+            }
+        }
+
+        if (processingFutures.isEmpty()) {
+            // 所有請求都已快取
+            TransferResponse response = TransferResponse.newBuilder()
+                    .setSuccess(true)
+                    .addAllEventKey(cachedEventKeys)
+                    .setMessage("All transfers were already processed.")
+                    .build();
+            responseObserver.onNext(response);
+            responseObserver.onCompleted();
+            return;
+        }
+
+        CompletableFuture.allOf(processingFutures.toArray(new CompletableFuture[0]))
                 .whenComplete((voidResult, throwable) -> {
                     if (throwable != null) {
                         log.error("Error processing batch transfer via Raft", throwable);
                         Status status = Status.INTERNAL.withDescription("Internal error: " + throwable.getMessage());
                         responseObserver.onError(status.asRuntimeException());
                     } else {
-                        List<String> eventKeys = futures.stream()
-                                .flatMap(map -> map.keySet().stream()).toList();
+                        List<String> processedEventKeys = processingFutures.stream()
+                                .map(CompletableFuture::join)
+                                .toList();
+
+                        List<String> allEventKeys = new ArrayList<>(cachedEventKeys);
+                        allEventKeys.addAll(processedEventKeys);
 
                         TransferResponse response = TransferResponse.newBuilder()
                                 .setSuccess(true)
-                                .addAllEventKey(eventKeys)
+                                .addAllEventKey(allEventKeys)
                                 .setMessage("All transfers submitted to Raft cluster for processing.")
                                 .build();
                         responseObserver.onNext(response);
                         responseObserver.onCompleted();
                     }
                 });
+    }
+
+    private CompletableFuture<String> processAndSaveTransfer(TransferRequest grpcRequest) {
+        final String eventKey = snowflakeIdGenerator.nextIdString();
+        final String requestId = grpcRequest.getRequestId();
+
+        CompletableFuture<RaftClientReply> raftFuture = processSingleTransfer(grpcRequest, eventKey);
+        CompletableFuture<String> resultFuture = new CompletableFuture<>();
+
+        raftFuture.whenComplete((reply, ex) -> {
+            if (ex != null) {
+                log.error("Transfer failed for requestId: {}", requestId, ex);
+                IdempotencyRecordDto failRecord = new IdempotencyRecordDto("FAILED", ex.getMessage());
+                idempotencyService.saveRecord(requestId, failRecord);
+                resultFuture.completeExceptionally(ex);
+            } else {
+                TransferResponse transferResponse = TransferResponse.newBuilder()
+                        .setSuccess(true)
+                        .addEventKey(eventKey)
+                        .build();
+                IdempotencyRecordDto successRecord = new IdempotencyRecordDto("SUCCESS", JSON.toJSONString(transferResponse));
+                idempotencyService.saveRecord(requestId, successRecord);
+                resultFuture.complete(eventKey);
+            }
+        });
+
+        return resultFuture;
     }
 
 
@@ -143,8 +217,7 @@ public class TransferGrpcService extends TransferServiceGrpc.TransferServiceImpl
         }
     }
 
-    private Map<String, CompletableFuture<RaftClientReply>> processSingleTransfer(TransferRequest grpcRequest) {
-        final String eventKey = snowflakeIdGenerator.nextIdString();
+    private CompletableFuture<RaftClientReply> processSingleTransfer(TransferRequest grpcRequest, String eventKey) {
         BigDecimal amount = new BigDecimal(grpcRequest.getAmount());
         LedgerBookEntity fromLedger = LedgerBookEntity.builder()
                 .idempotencyKey(eventKey)
@@ -165,8 +238,7 @@ public class TransferGrpcService extends TransferServiceGrpc.TransferServiceImpl
                 .meta(grpcRequest.getMeta())
                 .opUid(grpcRequest.getOpUid()).opIp(grpcRequest.getOpIp()).build();
         TransferRaftRequest transferRaftRequest = new TransferRaftRequest(event);
-        CompletableFuture<RaftClientReply> future = batchTransferProcessorService.getBatchProcessor().submit(transferRaftRequest);
-        return Map.of(eventKey, future);
+        return batchTransferProcessorService.getBatchProcessor().submit(transferRaftRequest);
     }
 
     private AccountIdDto findAccountIdByChainupIdAndAssetType(Integer chainupId, Integer assetType) {

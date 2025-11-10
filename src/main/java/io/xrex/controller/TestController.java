@@ -5,6 +5,7 @@ import io.xrex.grpc.TransferListRequest;
 import io.xrex.grpc.TransferRequest;
 import io.xrex.grpc.TransferResponse;
 import io.xrex.service.grpc.TransferGrpcService;
+import io.xrex.util.UUIDv7Generator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -13,7 +14,6 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.ThreadLocalRandom;
 
 @Slf4j
 @RestController
@@ -53,7 +53,8 @@ public class TestController {
                 TransferRequest request = TransferRequest.newBuilder()
                         .setFromUid(1).setFromType(201106).setToUid(toUid).setToType(201106)
                         .setAmount("100").setScene("TRANSFER_COMMON").setMeta("0")
-                        .setRefType("test").setRefId(i).setOpUid(1).setOpIp("127.0.0.1").build();
+                        .setRefType("test").setRefId(i % 2 == 0 ? 1 : 2).setOpUid(1).setOpIp("127.0.0.1")
+                        .setRequestId(UUIDv7Generator.generate()).build();
                 requests.add(request);
                 TransferListRequest listRequest = TransferListRequest.newBuilder().addAllRequests(requests).build();
                 try {
@@ -63,6 +64,9 @@ public class TestController {
                 }
             }
             log.info("Finished submitting {} requests, loop={}, time={}ms", requestCount, loop, System.currentTimeMillis() - start);
+            if (loop % 200 == 0) {
+                Thread.sleep(10);
+            }
         }
     }
 }

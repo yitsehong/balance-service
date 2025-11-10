@@ -24,7 +24,12 @@ import org.springframework.stereotype.Service;
 
 import java.io.File;
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -41,7 +46,13 @@ public class RocksDBService {
             .maximumSize(1000_000).expireAfterWrite(50, TimeUnit.SECONDS).build();
     private final ConfigService configService;
     private final AccountRepository accountRepository;
+
     private RocksDB db;
+    private DBOptions dbOptions;
+    private final List<ColumnFamilyHandle> cfHandles = new ArrayList<>();
+    private ColumnFamilyHandle defaultCfHandle;
+    private ColumnFamilyHandle idempotencyCfHandle;
+
 
     public RocksDBService(ConfigService configService, AccountRepository accountRepository) {
         this.configService = configService;
@@ -51,16 +62,25 @@ public class RocksDBService {
     @PostConstruct
     public void initialize() {
         RocksDB.loadLibrary();
-        final Options options = new Options().setCreateIfMissing(true);
+        final List<ColumnFamilyDescriptor> cfDescriptors = Arrays.asList(
+                new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY),
+                new ColumnFamilyDescriptor("idempotency".getBytes(StandardCharsets.UTF_8))
+        );
+
+        dbOptions = new DBOptions().setCreateIfMissing(true).setCreateMissingColumnFamilies(true);
 
         try {
             File dbDir = new File(DB_PATH);
-            db = RocksDB.open(options, dbDir.getAbsolutePath());
+            db = RocksDB.open(dbOptions, dbDir.getAbsolutePath(), cfDescriptors, cfHandles);
             log.info("RocksDB initialized at: {}", dbDir.getAbsolutePath());
+
+            // Assign handles based on order
+            defaultCfHandle = cfHandles.get(0);
+            idempotencyCfHandle = cfHandles.get(1);
 
             warmUpCacheFromDB();
         } catch (RocksDBException e) {
-            log.error("Error initializing RocksDB", e);
+            log.error("Error initializing RocksDB with Column Families", e);
             throw new RuntimeException(e);
         }
     }
@@ -102,8 +122,8 @@ public class RocksDBService {
                 toAccountBalance.setAmount(toAfterBalance);
 
                 // Add updates to the batch
-                batch.put(JSON.toJSONBytes(fromAccountId), JSON.toJSONBytes(fromAccountBalance));
-                batch.put(JSON.toJSONBytes(toAccountId), JSON.toJSONBytes(toAccountBalance));
+                batch.put(defaultCfHandle, JSON.toJSONBytes(fromAccountId), JSON.toJSONBytes(fromAccountBalance));
+                batch.put(defaultCfHandle, JSON.toJSONBytes(toAccountId), JSON.toJSONBytes(toAccountBalance));
                 // Execute the atomic write
                 db.write(writeOpts, batch);
 
@@ -119,7 +139,7 @@ public class RocksDBService {
             // --- End of Atomic Update ---
 
             // Create ledger book entries
-            LocalDateTime now = LocalDateTime.now();
+            LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
             LedgerBookEntity from = LedgerBookEntity.builder()
                     .idempotencyKey(eventKey)
                     .chainupId(fromAccountId.getChainupId())
@@ -254,27 +274,65 @@ public class RocksDBService {
         return Optional.of(JSON.parseObject(balanceBytes, BalanceDto.class));
     }
 
-    private byte[] get(byte[] key) {
+    // --- Refactored and New Methods for Column Family Support ---
+
+    public byte[] getFromIdempotency(byte[] key) {
+        return get(idempotencyCfHandle, key);
+    }
+
+    public void saveToIdempotency(byte[] key, byte[] value) {
+        put(idempotencyCfHandle, key, value);
+    }
+
+    /**
+     * Generic get method for any column family.
+     */
+    private byte[] get(ColumnFamilyHandle cfHandle, byte[] key) {
         try {
-            return db.get(key);
+            return db.get(cfHandle, key);
         } catch (RocksDBException e) {
-            log.error("Error getting value for key from RocksDB", e);
+            log.error("Error getting value for key from RocksDB column family", e);
             return null;
         }
     }
 
-    private void save(byte[] key, byte[] value) {
+    /**
+     * Generic put method for any column family.
+     */
+    private void put(ColumnFamilyHandle cfHandle, byte[] key, byte[] value) {
         try {
-            db.put(key, value);
+            db.put(cfHandle, key, value);
         } catch (RocksDBException e) {
-            log.error("Error saving value to RocksDB", e);
+            log.error("Error saving value to RocksDB column family", e);
         }
     }
 
+    /**
+     * Backward-compatible get method, operates on the default column family.
+     */
+    private byte[] get(byte[] key) {
+        return get(defaultCfHandle, key);
+    }
+
+    /**
+     * Backward-compatible save method, operates on the default column family.
+     */
+    private void save(byte[] key, byte[] value) {
+        put(defaultCfHandle, key, value);
+    }
+
+
     @PreDestroy
     public void close() {
+        // The order of closing is important
+        for (final ColumnFamilyHandle cfHandle : cfHandles) {
+            cfHandle.close();
+        }
         if (db != null) {
             db.close();
+        }
+        if (dbOptions != null) {
+            dbOptions.close();
         }
     }
 }
