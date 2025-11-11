@@ -1,6 +1,7 @@
 package io.xrex.service.raft;
 
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.DependsOn;
 import org.springframework.stereotype.Service;
 
 import javax.annotation.PostConstruct;
@@ -9,6 +10,7 @@ import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicLong;
 
 @Service
+@DependsOn("raftClient")
 public class BatchTransferProcessorService {
 
     private final BatchTransferProcessor batchTransferProcessor;
@@ -50,7 +52,15 @@ public class BatchTransferProcessorService {
 
     @PreDestroy
     public void stop() {
-        executor.shutdownNow();
+        batchTransferProcessor.stop();
+        executor.shutdown();
+        try {
+            if (!executor.awaitTermination(5, TimeUnit.SECONDS)) {
+                executor.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            executor.shutdownNow();
+        }
     }
 
     public BatchTransferProcessor getBatchProcessor() {

@@ -39,7 +39,7 @@ public class KafkaConsumerConfig {
         props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
         props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
         props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, JsonDeserializer.class);
-        props.put(JsonDeserializer.TRUSTED_PACKAGES, "io.xrex.dto.event");
+        props.put(JsonDeserializer.TRUSTED_PACKAGES, "io.xrex.model.dto.event");
         props.put(JsonDeserializer.VALUE_DEFAULT_TYPE, TransactionEventDto.class.getName());
         props.put(JsonDeserializer.USE_TYPE_INFO_HEADERS, true);
         props.put(JsonDeserializer.REMOVE_TYPE_INFO_HEADERS, false);

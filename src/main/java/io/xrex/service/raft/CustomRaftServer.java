@@ -8,7 +8,6 @@ import org.apache.ratis.protocol.RaftPeer;
 import org.apache.ratis.server.RaftServer;
 import org.apache.ratis.util.NetUtils;
 
-import javax.annotation.PostConstruct;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -62,7 +61,6 @@ public class CustomRaftServer {
                 .build();
     }
 
-    @PostConstruct
     public void start() throws IOException {
         server.start();
     }

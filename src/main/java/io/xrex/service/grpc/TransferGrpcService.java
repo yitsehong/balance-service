@@ -219,10 +219,13 @@ public class TransferGrpcService extends TransferServiceGrpc.TransferServiceImpl
 
     private CompletableFuture<RaftClientReply> processSingleTransfer(TransferRequest grpcRequest, String eventKey) {
         BigDecimal amount = new BigDecimal(grpcRequest.getAmount());
+
+        ConfigAccountTypeEntity configAccountType = configService.findByAssetType(grpcRequest.getFromType());
         LedgerBookEntity fromLedger = LedgerBookEntity.builder()
                 .idempotencyKey(eventKey)
                 .chainupId(grpcRequest.getFromUid())
                 .assetType(grpcRequest.getFromType())
+                .coinSymbol(configAccountType.getCoinSymbol())
                 .amount(amount.negate()).scene(grpcRequest.getScene())
                 .refType(grpcRequest.getRefType()).refId(grpcRequest.getRefId()).build();
 
@@ -230,6 +233,7 @@ public class TransferGrpcService extends TransferServiceGrpc.TransferServiceImpl
                 .idempotencyKey(eventKey)
                 .chainupId(grpcRequest.getToUid())
                 .assetType(grpcRequest.getToType())
+                .coinSymbol(configAccountType.getCoinSymbol())
                 .amount(amount).scene(grpcRequest.getScene())
                 .refType(grpcRequest.getRefType()).refId(grpcRequest.getRefId()).build();
 

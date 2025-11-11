@@ -6,6 +6,7 @@ import io.xrex.service.RocksDBService;
 import io.xrex.service.raft.BalanceStateMachine;
 import io.xrex.service.raft.CustomRaftClient;
 import io.xrex.service.raft.CustomRaftServer;
+import lombok.RequiredArgsConstructor;
 import org.apache.ratis.protocol.RaftGroup;
 import org.apache.ratis.protocol.RaftGroupId;
 import org.apache.ratis.protocol.RaftPeer;
@@ -19,7 +20,12 @@ import java.util.Collections;
 import java.util.UUID;
 
 @Configuration
+@RequiredArgsConstructor
 public class RaftConfig {
+
+    private final KafkaTemplate<String, TransactionEventDto> kafkaTemplate;
+    private final ConfigService configService;
+    private final RocksDBService rocksDBService;
 
     @Value("${raft.id}")
     private String raftId;
@@ -31,9 +37,7 @@ public class RaftConfig {
     private int raftPort;
 
     @Bean
-    public BalanceStateMachine raftStateMachine(KafkaTemplate<String, TransactionEventDto> kafkaTemplate,
-                                                ConfigService configService, RocksDBService rocksDBService) {
-        // Pass all required dependencies to the state machine.
+    public BalanceStateMachine raftStateMachine() {
         return new BalanceStateMachine(kafkaTemplate, configService, rocksDBService);
     }
 
@@ -46,7 +50,9 @@ public class RaftConfig {
 
     @Bean(destroyMethod = "stop")
     public CustomRaftServer raftServer(BalanceStateMachine stateMachine, RaftGroup raftGroup) throws IOException {
-        return new CustomRaftServer(stateMachine, raftId, raftGroup, raftPort);
+        CustomRaftServer server = new CustomRaftServer(stateMachine, raftId, raftGroup, raftPort);
+        server.start();
+        return server;
     }
 
     @Bean(destroyMethod = "close")

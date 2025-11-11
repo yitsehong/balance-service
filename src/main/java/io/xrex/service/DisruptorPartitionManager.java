@@ -2,7 +2,6 @@ package io.xrex.service;
 
 import com.lmax.disruptor.RingBuffer;
 import com.lmax.disruptor.dsl.Disruptor;
-import com.lmax.disruptor.util.DaemonThreadFactory;
 import io.xrex.event.disruptor.TransferRingBufferEvent;
 import io.xrex.event.handler.BalanceUpdateEventHandler;
 import io.xrex.event.handler.BalanceUpdateEventHandlerFactory;
@@ -11,6 +10,7 @@ import lombok.extern.slf4j.Slf4j;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ThreadFactory;
 
 @Slf4j
 public class DisruptorPartitionManager {
@@ -35,10 +35,22 @@ public class DisruptorPartitionManager {
         for (Map.Entry<String, ConfigCoinSymbolEntity> entry : openCoins.entrySet()) {
             String coinSymbol = entry.getKey();
             log.info("Creating disruptor for coin: {}", coinSymbol);
-            Disruptor<TransferRingBufferEvent> disruptor = new Disruptor<>(
-                    TransferRingBufferEvent::new, 1024, DaemonThreadFactory.INSTANCE);
 
-            BalanceUpdateEventHandler handler = handlerFactory.create(topic);
+            // 1. Create custom ThreadFactory to include coin in thread name
+            final String threadName = "disruptor-partition-" + coinSymbol;
+            ThreadFactory threadFactory = r -> {
+                Thread t = new Thread(r);
+                t.setName(threadName);
+                t.setDaemon(true);
+                return t;
+            };
+
+            Disruptor<TransferRingBufferEvent> disruptor = new Disruptor<>(
+                    TransferRingBufferEvent::new, 1024, threadFactory);
+
+            // 2. Create coin-specific topic and handler
+            String coinSpecificTopic = topic + "-" + coinSymbol.toLowerCase();
+            BalanceUpdateEventHandler handler = handlerFactory.create(coinSpecificTopic);
             disruptor.handleEventsWith(handler);
 
             RingBuffer<TransferRingBufferEvent> ringBuffer = disruptor.start();
@@ -62,10 +74,17 @@ public class DisruptorPartitionManager {
     }
 
     public void shutdown() {
-        log.info("Shutting down all disruptor partitions...");
-        for (Disruptor<?> disruptor : disruptors.values()) {
-            disruptor.shutdown();
-        }
-        log.info("All disruptor partitions shut down.");
+        log.info("Initiating asynchronous shutdown of all disruptor partitions...");
+        new Thread(() -> {
+            log.info("Background shutdown thread started.");
+            for (Map.Entry<String, Disruptor<TransferRingBufferEvent>> entry : disruptors.entrySet()) {
+                String coinSymbol = entry.getKey();
+                Disruptor<?> disruptor = entry.getValue();
+                log.info("Shutting down disruptor for coin: {}", coinSymbol);
+                disruptor.shutdown(); // This is a blocking call
+                log.info("Successfully shut down disruptor for coin: {}", coinSymbol);
+            }
+            log.info("All disruptor partitions have been shut down gracefully.");
+        }, "disruptor-shutdown-thread").start();
     }
 }

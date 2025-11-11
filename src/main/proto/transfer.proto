@@ -38,10 +38,10 @@ message TransferRequest {
   string amount = 7;
   string scene = 8;
   string meta = 9;
-  string refType = 10;
-  int64 refId = 11;
-  int32 opUid = 12;
-  string opIp = 13;
+  string ref_type = 10;
+  int64 ref_id = 11;
+  int32 op_uid = 12;
+  string op_ip = 13;
   string request_id = 14;
 }
 

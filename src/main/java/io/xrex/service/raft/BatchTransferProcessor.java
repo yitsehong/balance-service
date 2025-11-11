@@ -19,40 +19,58 @@ public class BatchTransferProcessor implements Runnable {
     private final BlockingQueue<TransferRaftRequest> queue = new LinkedBlockingQueue<>();
     private final int batchSize = 3000;
     private final long timeout = 300; // 300ms
+    private volatile boolean running = true;
+    private Thread workerThread;
 
     public BatchTransferProcessor(CustomRaftClient raftClient) {
         this.raftClient = raftClient;
     }
 
+    public void stop() {
+        running = false;
+        if (workerThread != null) {
+            workerThread.interrupt();
+        }
+    }
+
     public CompletableFuture<RaftClientReply> submit(TransferRaftRequest raftRequest) {
+        if (!running) {
+            raftRequest.getFuture().completeExceptionally(new IllegalStateException("Batch processor is shutting down."));
+            return raftRequest.getFuture();
+        }
         boolean check = queue.offer(raftRequest);
         if (!check) {
             log.error("Failed to add transfer request, event={}", raftRequest);
+            raftRequest.getFuture().completeExceptionally(new IllegalStateException("Queue is full."));
         }
         return raftRequest.getFuture();
     }
 
     @Override
     public void run() {
-        while (!Thread.currentThread().isInterrupted()) {
+        this.workerThread = Thread.currentThread();
+        while (running && !Thread.currentThread().isInterrupted()) {
             try {
                 List<TransferRaftRequest> batch = new ArrayList<>();
                 long startTime = System.currentTimeMillis();
 
-                while (batch.size() < batchSize && (System.currentTimeMillis() - startTime) < timeout) {
-                    TransferRaftRequest request = queue.poll(timeout - (System.currentTimeMillis() - startTime), TimeUnit.MILLISECONDS);
-                    if (request != null) {
-                        batch.add(request);
-                    }
+                // Drain the queue to form a batch
+                TransferRaftRequest firstRequest = queue.poll(timeout, TimeUnit.MILLISECONDS);
+                if (firstRequest != null) {
+                    batch.add(firstRequest);
+                    queue.drainTo(batch, batchSize - 1);
                 }
+
 
                 if (!batch.isEmpty()) {
                     processBatch(batch);
                 }
             } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
+                log.info("BatchTransferProcessor interrupted, shutting down.");
+                Thread.currentThread().interrupt(); // Preserve the interrupted status
             }
         }
+        log.info("BatchTransferProcessor has stopped.");
     }
 
     private void processBatch(List<TransferRaftRequest> batch) {

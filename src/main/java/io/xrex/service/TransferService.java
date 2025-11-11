@@ -9,9 +9,7 @@ import io.xrex.model.entity.TransactionEntity;
 import io.xrex.repository.AccountDao;
 import io.xrex.repository.TransactionDao;
 import io.xrex.service.raft.BatchTransferProcessorService;
-import io.xrex.service.raft.TransferRaftRequest;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.ratis.protocol.RaftClientReply;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -22,7 +20,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.CompletableFuture;
 
 @Slf4j
 @Service
@@ -31,21 +28,12 @@ public class TransferService {
     private final ConfigService configService;
     private final AccountDao accountDao;
     private final TransactionDao transactionDao;
-    private final BatchTransferProcessorService batchTransferProcessorService;
 
     public TransferService(ConfigService configService,
-                           AccountDao accountDao, TransactionDao transactionDao,
-                           BatchTransferProcessorService batchTransferProcessorService) {
+                           AccountDao accountDao, TransactionDao transactionDao) {
         this.configService = configService;
         this.accountDao = accountDao;
         this.transactionDao = transactionDao;
-        this.batchTransferProcessorService = batchTransferProcessorService;
-    }
-
-    public CompletableFuture<RaftClientReply> transfer(TransactionEventDto event) {
-        log.info("[TransferService] submit transfer event={}", event);
-        TransferRaftRequest transferRaftRequest = new TransferRaftRequest(event);
-        return batchTransferProcessorService.getBatchProcessor().submit(transferRaftRequest);
     }
 
     @Transactional

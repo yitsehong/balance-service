@@ -117,11 +117,12 @@ public class BalanceStateMachine extends BaseStateMachine {
 
             // 2. 修改發布邏輯：遍歷 DTO 列表，為每個 DTO 單獨發布一個事件
             for (TransactionEventDto eventDto : command.getEvents()) {
-                RingBuffer<TransferRingBufferEvent> ringBuffer = disruptorPartitionManager.getRingBuffer(eventDto.getFrom().getCoinSymbol());
+                String coinSymbol = eventDto.getFrom().getCoinSymbol();
+                RingBuffer<TransferRingBufferEvent> ringBuffer = disruptorPartitionManager.getRingBuffer(coinSymbol);
                 if (ringBuffer != null) {
                     ringBuffer.publishEvent(TRANSACTION_EVENT_TRANSLATOR, eventDto);
                 } else {
-                    log.error("No ring buffer found for asset type: {}", eventDto.getFrom().getAssetType());
+                    log.error("No ring buffer found for coin symbol: {}", coinSymbol);
                     // Handle error: maybe push to a default queue or reject the transaction
                 }
             }
@@ -205,12 +206,12 @@ public class BalanceStateMachine extends BaseStateMachine {
 
     @Override
     public void close() throws IOException {
-        super.close();
         if (disruptorPartitionManager != null) {
             disruptorPartitionManager.shutdown();
         }
         if (db != null) {
             db.close();
         }
+        super.close();
     }
 }

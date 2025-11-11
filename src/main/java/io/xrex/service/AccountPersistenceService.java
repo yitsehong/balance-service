@@ -5,8 +5,10 @@ import io.xrex.model.dto.event.TransactionEventDto;
 import io.xrex.model.entity.TransactionEntity;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.slf4j.MDC;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.support.Acknowledgment;
 import org.springframework.stereotype.Service;
@@ -24,8 +26,10 @@ public class AccountPersistenceService {
 
     private final TransferService transferService;
     private final LedgerBookService ledgerBookService;
+    @Value("${app.kafka.balance-transfer.topic}-")
+    private String topicPrefix;
 
-    @KafkaListener(topics = "${app.kafka.balance-transfer.topic}", groupId = "${app.kafka.balance-transfer.group}", containerFactory = "consumerFactory")
+    @KafkaListener(topicPattern = "${app.kafka.balance-transfer.topic}.*", groupId = "${app.kafka.balance-transfer.group}", containerFactory = "consumerFactory")
     public void consume(List<ConsumerRecord<String, TransactionEventDto>> records, Acknowledgment acknowledgment) {
         if (records.isEmpty()) {
             acknowledgment.acknowledge();
@@ -36,7 +40,7 @@ public class AccountPersistenceService {
         try {
             long start = System.currentTimeMillis();
             List<TransactionEventDto> events = records.stream().map(ConsumerRecord::value).toList();
-            MDC.put("eventKeys", events.get(0).getEventKey());
+            MDC.put("eventKeys", records.get(0).topic().replace(topicPrefix, StringUtils.EMPTY) + "-" + events.get(0).getEventKey());
             ledgerBookService.produceLedgerBook(events);
 
             // Step 1: Aggregate balance changes for each account
