@@ -35,12 +35,20 @@ public class AccountPersistenceService {
             acknowledgment.acknowledge();
             return;
         }
-        // TODO avoid duplicated
+
+        String topic = records.get(0).topic();
+        // Assuming topic format is "base-topic-coin" e.g., "balance-transfer-btc"
+        String coin = "unknown";
+        int lastDashIndex = topic.lastIndexOf('-');
+        if (lastDashIndex != -1 && lastDashIndex < topic.length() - 1) {
+            coin = topic.substring(lastDashIndex + 1).toUpperCase();
+        }
+        MDC.put("coin", coin);
 
         try {
             long start = System.currentTimeMillis();
             List<TransactionEventDto> events = records.stream().map(ConsumerRecord::value).toList();
-            MDC.put("eventKeys", records.get(0).topic().replace(topicPrefix, StringUtils.EMPTY) + "-" + events.get(0).getEventKey());
+            MDC.put("eventKeys", events.get(0).getEventKey());
             ledgerBookService.produceLedgerBook(events);
 
             // Step 1: Aggregate balance changes for each account
@@ -65,6 +73,7 @@ public class AccountPersistenceService {
             // The failed ones are logged for later handling.
             acknowledgment.acknowledge();
             MDC.remove("eventKeys");
+            MDC.remove("coin"); // Clear the coin from MDC
         }
     }
 

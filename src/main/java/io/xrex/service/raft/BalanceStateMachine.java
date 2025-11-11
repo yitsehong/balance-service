@@ -35,6 +35,8 @@ import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
 
 @Slf4j
 public class BalanceStateMachine extends BaseStateMachine {
@@ -68,6 +70,11 @@ public class BalanceStateMachine extends BaseStateMachine {
     @Value("${app.kafka.balance-transfer.topic}")
     private String topic;
 
+    @Value("${raft.state-machine.max-in-flight-requests:3000}")
+    private Integer maxInFlightRequests;
+
+    private Semaphore inFlightRequestsSemaphore;
+
     private DisruptorPartitionManager disruptorPartitionManager;
     private BalanceUpdateEventHandlerFactory balanceUpdateEventHandlerFactory;
 
@@ -93,8 +100,11 @@ public class BalanceStateMachine extends BaseStateMachine {
             throw new IOException("Failed to initialize RocksDB", e);
         }
 
+        this.inFlightRequestsSemaphore = new Semaphore(maxInFlightRequests);
+        log.info("Initialized in-flight request semaphore with {} permits", maxInFlightRequests);
+
         // Initialize partitioned disruptor
-        this.balanceUpdateEventHandlerFactory = new BalanceUpdateEventHandlerFactory(this.kafkaTemplate, this.configService, this.rocksDBService);
+        this.balanceUpdateEventHandlerFactory = new BalanceUpdateEventHandlerFactory(this.kafkaTemplate, this.configService, this.rocksDBService, this.inFlightRequestsSemaphore);
         this.disruptorPartitionManager = new DisruptorPartitionManager(this.balanceUpdateEventHandlerFactory, this.topic, this.configService);
         this.disruptorPartitionManager.initialize();
     }
@@ -117,12 +127,27 @@ public class BalanceStateMachine extends BaseStateMachine {
 
             // 2. 修改發布邏輯：遍歷 DTO 列表，為每個 DTO 單獨發布一個事件
             for (TransactionEventDto eventDto : command.getEvents()) {
+                try {
+                    // Acquire a permit before publishing. This will block if the system is overloaded.
+                    if (!inFlightRequestsSemaphore.tryAcquire(1, 10, TimeUnit.SECONDS)) {
+                        log.error("Timeout acquiring semaphore permit. System is overloaded. Rejecting transaction for eventKey: {}", eventDto.getEventKey());
+                        // We can't easily fail just one part of a batch. Failing the whole batch.
+                        return CompletableFuture.completedFuture(Message.valueOf("System overloaded. Please try again later."));
+                    }
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    log.error("Interrupted while waiting for semaphore permit. Rejecting transaction.", e);
+                    return CompletableFuture.completedFuture(Message.valueOf("Transaction interrupted."));
+                }
+
                 String coinSymbol = eventDto.getFrom().getCoinSymbol();
                 RingBuffer<TransferRingBufferEvent> ringBuffer = disruptorPartitionManager.getRingBuffer(coinSymbol);
                 if (ringBuffer != null) {
                     ringBuffer.publishEvent(TRANSACTION_EVENT_TRANSLATOR, eventDto);
                 } else {
-                    log.error("No ring buffer found for coin symbol: {}", coinSymbol);
+                    // If there's no ring buffer, we must release the permit we just acquired.
+                    inFlightRequestsSemaphore.release();
+                    log.error("No ring buffer found for coin symbol: {}. Releasing permit.", coinSymbol);
                     // Handle error: maybe push to a default queue or reject the transaction
                 }
             }

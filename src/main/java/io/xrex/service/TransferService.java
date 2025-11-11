@@ -8,7 +8,6 @@ import io.xrex.model.entity.LedgerBookEntity;
 import io.xrex.model.entity.TransactionEntity;
 import io.xrex.repository.AccountDao;
 import io.xrex.repository.TransactionDao;
-import io.xrex.service.raft.BatchTransferProcessorService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
