@@ -117,7 +117,7 @@ public class BalanceStateMachine extends BaseStateMachine {
 
             // 2. 修改發布邏輯：遍歷 DTO 列表，為每個 DTO 單獨發布一個事件
             for (TransactionEventDto eventDto : command.getEvents()) {
-                RingBuffer<TransferRingBufferEvent> ringBuffer = disruptorPartitionManager.getRingBuffer(eventDto.getFrom().getAssetType());
+                RingBuffer<TransferRingBufferEvent> ringBuffer = disruptorPartitionManager.getRingBuffer(eventDto.getFrom().getCoinSymbol());
                 if (ringBuffer != null) {
                     ringBuffer.publishEvent(TRANSACTION_EVENT_TRANSLATOR, eventDto);
                 } else {

@@ -6,7 +6,6 @@ import com.lmax.disruptor.util.DaemonThreadFactory;
 import io.xrex.event.disruptor.TransferRingBufferEvent;
 import io.xrex.event.handler.BalanceUpdateEventHandler;
 import io.xrex.event.handler.BalanceUpdateEventHandlerFactory;
-import io.xrex.model.entity.ConfigAccountTypeEntity;
 import io.xrex.model.entity.ConfigCoinSymbolEntity;
 import lombok.extern.slf4j.Slf4j;
 
@@ -49,16 +48,15 @@ public class DisruptorPartitionManager {
         log.info("DisruptorPartitionManager initialized with partitions for: {}", ringBuffers.keySet());
     }
 
-    public RingBuffer<TransferRingBufferEvent> getRingBuffer(Integer assetType) {
-        ConfigAccountTypeEntity config = configService.findByAssetType(assetType);
+    public RingBuffer<TransferRingBufferEvent> getRingBuffer(String coinSymbol) {
+        ConfigCoinSymbolEntity config = configService.findByCoinSymbol(coinSymbol);
         if (config == null) {
-            log.warn("No config found for assetType: {}. Cannot find RingBuffer.", assetType);
+            log.warn("No config found for coinSymbol: {}. Cannot find RingBuffer.", coinSymbol);
             return null; // Or return a default/global ring buffer
         }
-        String coinSymbol = config.getCoinSymbol();
         RingBuffer<TransferRingBufferEvent> buffer = ringBuffers.get(coinSymbol);
         if (buffer == null) {
-            log.warn("No RingBuffer partition found for coin: {}. AssetType: {}", coinSymbol, assetType);
+            log.warn("No RingBuffer partition found for coin: {}", coinSymbol);
         }
         return buffer;
     }
