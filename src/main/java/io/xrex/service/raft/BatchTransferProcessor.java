@@ -1,98 +1,126 @@
 package io.xrex.service.raft;
 
+import com.lmax.disruptor.EventHandler;
+import com.lmax.disruptor.RingBuffer;
+import com.lmax.disruptor.dsl.Disruptor;
+import com.lmax.disruptor.dsl.ProducerType;
 import io.xrex.model.dto.event.TransactionEventDto;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.ratis.protocol.RaftClientReply;
-import org.slf4j.MDC;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.ThreadFactory;
 
 @Slf4j
-public class BatchTransferProcessor implements Runnable {
+public class BatchTransferProcessor { // No longer implements Runnable
 
     private final CustomRaftClient raftClient;
-    private final BlockingQueue<TransferRaftRequest> queue = new LinkedBlockingQueue<>();
-    private final int batchSize = 3000;
-    private final long timeout = 300; // 300ms
-    private volatile boolean running = true;
-    private Thread workerThread;
+    private final int batchSize;
+    private final int bufferSize;
+    private Disruptor<BatchRaftRequestEvent> disruptor;
+    private RingBuffer<BatchRaftRequestEvent> ringBuffer;
 
-    public BatchTransferProcessor(CustomRaftClient raftClient) {
+    // 1. Event as a static inner class
+    public static class BatchRaftRequestEvent {
+        private TransferRaftRequest request;
+        public void set(TransferRaftRequest request) { this.request = request; }
+        public TransferRaftRequest get() { return request; }
+        public void clear() { request = null; }
+    }
+
+    // 2. Handler as a static inner class
+    public static class BatchSendEventHandler implements EventHandler<BatchRaftRequestEvent> {
+        private final CustomRaftClient raftClient;
+        private final int batchSize;
+        private final List<TransferRaftRequest> batch;
+
+        public BatchSendEventHandler(CustomRaftClient raftClient, int batchSize) {
+            this.raftClient = raftClient;
+            this.batchSize = batchSize;
+            this.batch = new ArrayList<>(batchSize);
+        }
+
+        @Override
+        public void onEvent(BatchRaftRequestEvent event, long sequence, boolean endOfBatch) {
+            batch.add(event.get());
+
+            if (endOfBatch || batch.size() >= batchSize) {
+                processBatch();
+            }
+        }
+
+        private void processBatch() {
+            if (batch.isEmpty()) {
+                return;
+            }
+            final List<TransferRaftRequest> currentBatch = new ArrayList<>(batch);
+            batch.clear();
+
+            log.debug("Processing batch of {} requests via Disruptor.", currentBatch.size());
+            List<TransactionEventDto> events = currentBatch.stream()
+                    .map(TransferRaftRequest::getEvent)
+                    .toList();
+
+            CompletableFuture<RaftClientReply> batchFuture = raftClient.sendBatch(events);
+
+            batchFuture.whenComplete((reply, ex) -> {
+                if (ex != null) {
+                    log.error("[BatchSendEventHandler] Batch processing failed.", ex);
+                    currentBatch.forEach(req -> req.getFuture().completeExceptionally(ex));
+                } else {
+                    currentBatch.forEach(req -> req.getFuture().complete(reply));
+                }
+            });
+        }
+    }
+
+    public BatchTransferProcessor(CustomRaftClient raftClient, int batchSize, int bufferSize) {
         this.raftClient = raftClient;
+        this.batchSize = batchSize;
+        this.bufferSize = bufferSize;
+    }
+
+    public void start() {
+        ThreadFactory threadFactory = r -> {
+            Thread t = new Thread(r);
+            t.setName("disruptor-batch-processor-thread");
+            t.setDaemon(true);
+            return t;
+        };
+
+        BatchSendEventHandler handler = new BatchSendEventHandler(raftClient, batchSize);
+
+        this.disruptor = new Disruptor<>(
+                BatchRaftRequestEvent::new,
+                bufferSize,
+                threadFactory,
+                ProducerType.MULTI,
+                new com.lmax.disruptor.BlockingWaitStrategy()
+        );
+
+        disruptor.handleEventsWith(handler);
+        this.ringBuffer = disruptor.start();
+        log.info("Disruptor-based BatchTransferProcessor started with buffer size {}.", bufferSize);
     }
 
     public void stop() {
-        running = false;
-        if (workerThread != null) {
-            workerThread.interrupt();
+        if (disruptor != null) {
+            log.info("Shutting down Disruptor-based BatchTransferProcessor...");
+            disruptor.shutdown();
+            log.info("Disruptor-based BatchTransferProcessor shut down.");
         }
     }
 
     public CompletableFuture<RaftClientReply> submit(TransferRaftRequest raftRequest) {
-        if (!running) {
-            raftRequest.getFuture().completeExceptionally(new IllegalStateException("Batch processor is shutting down."));
-            return raftRequest.getFuture();
+        if (!disruptor.getRingBuffer().hasAvailableCapacity(1)) {
+             log.warn("RingBuffer is full. Rejecting request for eventKey: {}", raftRequest.getEvent().getEventKey());
+             raftRequest.getFuture().completeExceptionally(new IllegalStateException("System overloaded. RingBuffer is full."));
+             return raftRequest.getFuture();
         }
-        boolean check = queue.offer(raftRequest);
-        if (!check) {
-            log.error("Failed to add transfer request, event={}", raftRequest);
-            raftRequest.getFuture().completeExceptionally(new IllegalStateException("Queue is full."));
-        }
+
+        this.ringBuffer.publishEvent((event, sequence, request) -> event.set(request), raftRequest);
         return raftRequest.getFuture();
-    }
-
-    @Override
-    public void run() {
-        this.workerThread = Thread.currentThread();
-        while (running && !Thread.currentThread().isInterrupted()) {
-            try {
-                List<TransferRaftRequest> batch = new ArrayList<>();
-                long startTime = System.currentTimeMillis();
-
-                // Drain the queue to form a batch
-                TransferRaftRequest firstRequest = queue.poll(timeout, TimeUnit.MILLISECONDS);
-                if (firstRequest != null) {
-                    batch.add(firstRequest);
-                    queue.drainTo(batch, batchSize - 1);
-                }
-
-
-                if (!batch.isEmpty()) {
-                    processBatch(batch);
-                }
-            } catch (InterruptedException e) {
-                log.info("BatchTransferProcessor interrupted, shutting down.");
-                Thread.currentThread().interrupt(); // Preserve the interrupted status
-            }
-        }
-        log.info("BatchTransferProcessor has stopped.");
-    }
-
-    private void processBatch(List<TransferRaftRequest> batch) {
-        MDC.put("eventKeys", batch.get(0).getEvent().getEventKey());
-        try {
-            List<TransactionEventDto> events = batch.stream().map(TransferRaftRequest::getEvent).toList();
-            CompletableFuture<RaftClientReply> batchFuture = raftClient.sendBatch(events);
-            batchFuture.whenComplete((reply, ex) -> {
-                if (ex != null) {
-                    log.error("[BatchTransferProcessor] Batch processing failed.", ex);
-                    for (TransferRaftRequest request : batch) {
-                        request.getFuture().completeExceptionally(ex);
-                    }
-                } else {
-                    for (TransferRaftRequest request : batch) {
-                        request.getFuture().complete(reply);
-                    }
-                }
-            });
-        } finally {
-            // 確保在操作結束後清除 MDC，以防線程重用時數據污染
-            MDC.remove("eventKeys");
-        }
     }
 }

@@ -5,7 +5,6 @@ import io.xrex.model.dto.event.TransactionEventDto;
 import io.xrex.model.entity.TransactionEntity;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.lang3.StringUtils;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Value;
@@ -26,8 +25,6 @@ public class AccountPersistenceService {
 
     private final TransferService transferService;
     private final LedgerBookService ledgerBookService;
-    @Value("${app.kafka.balance-transfer.topic}-")
-    private String topicPrefix;
 
     @KafkaListener(topicPattern = "${app.kafka.balance-transfer.topic}.*", groupId = "${app.kafka.balance-transfer.group}", containerFactory = "consumerFactory")
     public void consume(List<ConsumerRecord<String, TransactionEventDto>> records, Acknowledgment acknowledgment) {
@@ -36,17 +33,16 @@ public class AccountPersistenceService {
             return;
         }
 
-        String topic = records.get(0).topic();
-        // Assuming topic format is "base-topic-coin" e.g., "balance-transfer-btc"
-        String coin = "unknown";
-        int lastDashIndex = topic.lastIndexOf('-');
-        if (lastDashIndex != -1 && lastDashIndex < topic.length() - 1) {
-            coin = topic.substring(lastDashIndex + 1).toUpperCase();
-        }
-        MDC.put("coin", coin);
-
         try {
             long start = System.currentTimeMillis();
+            String topic = records.get(0).topic();
+            // Assuming topic format is "base-topic-coin" e.g., "balance-transfer-btc"
+            String coin = "unknown";
+            int lastDashIndex = topic.lastIndexOf('-');
+            if (lastDashIndex != -1 && lastDashIndex < topic.length() - 1) {
+                coin = topic.substring(lastDashIndex + 1).toLowerCase();
+            }
+
             List<TransactionEventDto> events = records.stream().map(ConsumerRecord::value).toList();
             MDC.put("eventKeys", events.get(0).getEventKey());
             ledgerBookService.produceLedgerBook(events);
@@ -62,7 +58,7 @@ public class AccountPersistenceService {
 
             // Each mini-batch is processed in its own transaction via batchTransfer
             transferService.batchTransfer(balanceAdjustments, transactions);
-            log.info("Successfully persisted of event size={}, balanceAdjustments size={}, time={}ms", events.size(), balanceAdjustments.size(), System.currentTimeMillis() - start);
+            log.info("Successfully persisted of event size={}, coin={}, balanceAdjustments size={}, time={}ms", events.size(), coin, balanceAdjustments.size(), System.currentTimeMillis() - start);
         } catch (Exception e) {
             // Log the error for the specific mini-batch and continue with the next
             // This enhances resilience, preventing one bad batch from stopping the entire poll.
@@ -73,7 +69,6 @@ public class AccountPersistenceService {
             // The failed ones are logged for later handling.
             acknowledgment.acknowledge();
             MDC.remove("eventKeys");
-            MDC.remove("coin"); // Clear the coin from MDC
         }
     }
 

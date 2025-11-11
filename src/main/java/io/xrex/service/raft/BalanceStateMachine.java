@@ -119,11 +119,10 @@ public class BalanceStateMachine extends BaseStateMachine {
             final long sequenceId = command.getSequenceId();
 
             if (isDuplicate(clientId, sequenceId)) {
-                log.warn("[BalanceStateMachine] Duplicate request detected. ClientId={}, SequenceId={}", clientId, sequenceId);
+                log.error("[BalanceStateMachine] Duplicate request detected. ClientId={}, SequenceId={}", clientId, sequenceId);
                 return CompletableFuture.completedFuture(Message.valueOf("Duplicate request"));
             }
             MDC.put("eventKeys", command.getEvents().get(0).getEventKey());
-            log.info("[BalanceStateMachine] Publishing {} events to RingBuffer...", command.getEvents().size());
 
             // 2. 修改發布邏輯：遍歷 DTO 列表，為每個 DTO 單獨發布一個事件
             for (TransactionEventDto eventDto : command.getEvents()) {
@@ -152,7 +151,7 @@ public class BalanceStateMachine extends BaseStateMachine {
                 }
             }
             clientSequenceIds.put(clientId, sequenceId);
-            log.info("[BalanceStateMachine] applyTransaction END. Returning OK to Raft framework.");
+            log.info("[BalanceStateMachine] {} events applyTransaction END. Returning OK to Raft framework.",  command.getEvents().size());
             return CompletableFuture.completedFuture(Message.valueOf("OK"));
         } finally {
             MDC.remove("eventKeys");
