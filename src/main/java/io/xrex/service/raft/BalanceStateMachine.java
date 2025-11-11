@@ -3,14 +3,13 @@ package io.xrex.service.raft;
 import com.alibaba.fastjson2.JSON;
 import com.lmax.disruptor.EventTranslatorOneArg;
 import com.lmax.disruptor.RingBuffer;
-import com.lmax.disruptor.dsl.Disruptor;
-import com.lmax.disruptor.util.DaemonThreadFactory;
 import io.xrex.enums.ReadConsistency;
 import io.xrex.event.disruptor.TransferRingBufferEvent;
-import io.xrex.event.handler.BalanceUpdateEventHandler;
+import io.xrex.event.handler.BalanceUpdateEventHandlerFactory;
 import io.xrex.model.dto.AccountIdDto;
 import io.xrex.model.dto.event.TransactionEventDto;
 import io.xrex.service.ConfigService;
+import io.xrex.service.DisruptorPartitionManager;
 import io.xrex.service.RocksDBService;
 import io.xrex.service.raft.command.BatchCommand;
 import io.xrex.service.raft.command.QueryCommand;
@@ -68,8 +67,10 @@ public class BalanceStateMachine extends BaseStateMachine {
     private RaftGroupId groupId;
     @Value("${app.kafka.balance-transfer.topic}")
     private String topic;
-    private Disruptor<TransferRingBufferEvent> disruptor;
-    private RingBuffer<TransferRingBufferEvent> ringBuffer;
+
+    private DisruptorPartitionManager disruptorPartitionManager;
+    private BalanceUpdateEventHandlerFactory balanceUpdateEventHandlerFactory;
+
 
     public BalanceStateMachine(KafkaTemplate<String, TransactionEventDto> kafkaTemplate,
                                ConfigService configService, RocksDBService rocksDBService) {
@@ -92,10 +93,10 @@ public class BalanceStateMachine extends BaseStateMachine {
             throw new IOException("Failed to initialize RocksDB", e);
         }
 
-        this.disruptor = new Disruptor<>(TransferRingBufferEvent::new, 1024, DaemonThreadFactory.INSTANCE);
-        final BalanceUpdateEventHandler handler = new BalanceUpdateEventHandler(topic, this.kafkaTemplate, this.configService, this.rocksDBService);
-        this.disruptor.handleEventsWith(handler);
-        this.ringBuffer = this.disruptor.start();
+        // Initialize partitioned disruptor
+        this.balanceUpdateEventHandlerFactory = new BalanceUpdateEventHandlerFactory(this.kafkaTemplate, this.configService, this.rocksDBService);
+        this.disruptorPartitionManager = new DisruptorPartitionManager(this.balanceUpdateEventHandlerFactory, this.topic, this.configService);
+        this.disruptorPartitionManager.initialize();
     }
 
     @Override
@@ -116,7 +117,13 @@ public class BalanceStateMachine extends BaseStateMachine {
 
             // 2. 修改發布邏輯：遍歷 DTO 列表，為每個 DTO 單獨發布一個事件
             for (TransactionEventDto eventDto : command.getEvents()) {
-                ringBuffer.publishEvent(TRANSACTION_EVENT_TRANSLATOR, eventDto);
+                RingBuffer<TransferRingBufferEvent> ringBuffer = disruptorPartitionManager.getRingBuffer(eventDto.getFrom().getAssetType());
+                if (ringBuffer != null) {
+                    ringBuffer.publishEvent(TRANSACTION_EVENT_TRANSLATOR, eventDto);
+                } else {
+                    log.error("No ring buffer found for asset type: {}", eventDto.getFrom().getAssetType());
+                    // Handle error: maybe push to a default queue or reject the transaction
+                }
             }
             clientSequenceIds.put(clientId, sequenceId);
             log.info("[BalanceStateMachine] applyTransaction END. Returning OK to Raft framework.");
@@ -199,8 +206,8 @@ public class BalanceStateMachine extends BaseStateMachine {
     @Override
     public void close() throws IOException {
         super.close();
-        if (disruptor != null) {
-            disruptor.shutdown();
+        if (disruptorPartitionManager != null) {
+            disruptorPartitionManager.shutdown();
         }
         if (db != null) {
             db.close();

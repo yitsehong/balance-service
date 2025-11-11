@@ -3,13 +3,18 @@ package io.xrex.service;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import io.xrex.model.entity.ConfigAccountTypeEntity;
+import io.xrex.model.entity.ConfigCoinSymbolEntity;
 import io.xrex.repository.ConfigAccountTypeRepository;
+import io.xrex.repository.ConfigCoinSymbolRepository;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -18,6 +23,7 @@ public class ConfigService {
             .maximumSize(1000_000).expireAfterWrite(1, TimeUnit.DAYS).build();
 
     private final ConfigAccountTypeRepository configAccountTypeRepository;
+    private final ConfigCoinSymbolRepository configCoinSymbolRepository;
 
     @PostConstruct
     public void initialize() {
@@ -37,5 +43,10 @@ public class ConfigService {
             configAccountTypeCache.put(assetType, result);
         }
         return result;
+    }
+
+    public Map<String, ConfigCoinSymbolEntity> findAllOpenCoinMap() {
+        return configCoinSymbolRepository.findAll().stream().filter(c -> c.getIsOpen() == 1)
+                .collect(Collectors.toMap(ConfigCoinSymbolEntity::getCoinSymbol, Function.identity()));
     }
 }
