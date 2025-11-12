@@ -24,7 +24,7 @@ public class TestController {
     @PostMapping("/api/v1/test")
     public void test(@RequestParam(value = "request_count") int requestCount,
                      @RequestParam(value = "loop") int loop) throws InterruptedException {
-        
+
         StreamObserver<TransferResponse> responseObserver = new StreamObserver<>() {
             @Override
             public void onNext(TransferResponse value) {

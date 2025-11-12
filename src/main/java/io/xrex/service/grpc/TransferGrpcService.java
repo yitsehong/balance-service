@@ -1,6 +1,6 @@
 package io.xrex.service.grpc;
 
-import com.alibaba.fastjson2.JSON;
+import com.google.protobuf.util.JsonFormat;
 import com.google.common.base.Strings;
 import io.grpc.Status;
 import io.grpc.stub.StreamObserver;
@@ -82,10 +82,16 @@ public class TransferGrpcService extends TransferServiceGrpc.TransferServiceImpl
         if (recordOpt.isPresent()) {
             IdempotencyRecordDto record = recordOpt.get();
             if ("SUCCESS".equals(record.getStatus())) {
-                TransferResponse cachedResponse = JSON.parseObject(record.getResponseData(), TransferResponse.class);
-                responseObserver.onNext(cachedResponse);
-                responseObserver.onCompleted();
-                return;
+                try {
+                    TransferResponse.Builder builder = TransferResponse.newBuilder();
+                    JsonFormat.parser().merge(record.getResponseData(), builder);
+                    responseObserver.onNext(builder.build());
+                    responseObserver.onCompleted();
+                    return;
+                } catch (Exception e) {
+                    log.error("Failed to parse cached response for requestId: {}", requestId, e);
+                    // Fall through to re-process the request if parsing fails
+                }
             }
         }
 
@@ -105,26 +111,39 @@ public class TransferGrpcService extends TransferServiceGrpc.TransferServiceImpl
             return;
         }
 
-        CompletableFuture.allOf(processingFutures.toArray(new CompletableFuture[0]))
-                .whenComplete((voidResult, throwable) -> {
-                    if (throwable != null) {
-                        log.error("Error processing batch transfer via Raft", throwable);
-                        Status status = Status.INTERNAL.withDescription("Internal error: " + throwable.getMessage());
-                        responseObserver.onError(status.asRuntimeException());
-                    } else {
-                        List<String> processedEventKeys = processingFutures.stream()
-                                .map(CompletableFuture::join)
-                                .toList();
+        CompletableFuture<Void> allFutures = CompletableFuture.allOf(processingFutures.toArray(new CompletableFuture[0]));
 
-                        TransferResponse response = TransferResponse.newBuilder()
-                                .setSuccess(true)
-                                .addAllEventKey(processedEventKeys)
-                                .setMessage("All transfers submitted to Raft cluster for processing.")
-                                .build();
-                        responseObserver.onNext(response);
-                        responseObserver.onCompleted();
-                    }
-                });
+        allFutures.thenRun(() -> {
+            // This block runs only if ALL futures completed successfully.
+            List<String> transactionIds = processingFutures.stream()
+                    .map(CompletableFuture::join).toList();
+
+            TransferResponse response = TransferResponse.newBuilder()
+                    .setSuccess(true)
+                    .addAllTransactionIds(transactionIds)
+                    .setMessage("All transfers submitted to Raft cluster for processing.")
+                    .build();
+
+            try {
+                String responseJson = JsonFormat.printer().print(response);
+                IdempotencyRecordDto successRecord = new IdempotencyRecordDto("SUCCESS", responseJson);
+                idempotencyService.saveRecord(requestId, successRecord);
+                responseObserver.onNext(response);
+            } catch (Exception e) {
+                log.error("Failed to serialize response for idempotency record, requestId: {}", requestId, e);
+                // Continue to send response to client even if caching fails
+                responseObserver.onError(e);
+            }
+            responseObserver.onCompleted();
+        }).exceptionally(throwable -> {
+            // This block runs if ANY of the futures completed exceptionally.
+            log.error("Error processing batch transfer via Raft", throwable);
+            IdempotencyRecordDto failRecord = new IdempotencyRecordDto("FAILED", throwable.getMessage());
+            idempotencyService.saveRecord(requestId, failRecord);
+            Status status = Status.INTERNAL.withDescription("Internal error: " + throwable.getMessage());
+            responseObserver.onError(status.asRuntimeException());
+            return null; // Required for exceptionally
+        });
     }
 
     /**
@@ -145,16 +164,8 @@ public class TransferGrpcService extends TransferServiceGrpc.TransferServiceImpl
         raftFuture.whenComplete((reply, ex) -> {
             if (ex != null) {
                 log.error("Transfer failed for requestId: {}", requestId, ex);
-                IdempotencyRecordDto failRecord = new IdempotencyRecordDto("FAILED", ex.getMessage());
-                idempotencyService.saveRecord(requestId, failRecord);
                 resultFuture.completeExceptionally(ex);
             } else {
-                TransferResponse transferResponse = TransferResponse.newBuilder()
-                        .setSuccess(true)
-                        .addEventKey(eventKey)
-                        .build();
-                IdempotencyRecordDto successRecord = new IdempotencyRecordDto("SUCCESS", JSON.toJSONString(transferResponse));
-                idempotencyService.saveRecord(requestId, successRecord);
                 resultFuture.complete(eventKey);
             }
         });

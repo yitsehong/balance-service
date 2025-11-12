@@ -48,7 +48,7 @@ message TransferRequest {
 // The response message containing the transaction ID.
 message TransferResponse {
   bool success = 1;
-  repeated string event_key = 2;
+  repeated string transaction_ids = 2;
   string message = 3;
 }
 
