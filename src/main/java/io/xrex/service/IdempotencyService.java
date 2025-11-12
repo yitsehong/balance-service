@@ -8,7 +8,11 @@ import org.springframework.stereotype.Service;
 import java.util.Optional;
 
 /**
- * Service to handle idempotency logic by storing and retrieving request records.
+ * Manages idempotency for operations to prevent duplicate processing.
+ * This service uses RocksDB to store a record of processed request IDs.
+ * Before executing an operation, the system can check if the request has already been
+ * processed. After a successful operation, a record is saved to ensure that
+ * subsequent identical requests are not processed again.
  */
 @Service
 @RequiredArgsConstructor

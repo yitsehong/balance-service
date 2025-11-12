@@ -7,7 +7,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.slf4j.MDC;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.support.Acknowledgment;
 import org.springframework.stereotype.Service;
@@ -18,6 +17,12 @@ import java.util.Map;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
+/**
+ * This service is responsible for consuming transaction events from Kafka,
+ * processing them, and persisting the resulting state changes to the database.
+ * It listens to Kafka topics, processes batches of transactions, updates account balances,
+ * and records ledger entries and transactions.
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -26,6 +31,15 @@ public class AccountPersistenceService {
     private final TransferService transferService;
     private final LedgerBookService ledgerBookService;
 
+    /**
+     * Consumes a list of transaction events from a Kafka topic.
+     * This method processes a batch of records, aggregates balance changes,
+     * creates ledger and transaction records, and then persists these changes
+     * within a database transaction.
+     *
+     * @param records A list of ConsumerRecord objects containing TransactionEventDto payloads.
+     * @param acknowledgment The Acknowledgment object to confirm that the batch has been processed.
+     */
     @KafkaListener(topicPattern = "${app.kafka.balance-transfer.topic}.*", groupId = "${app.kafka.balance-transfer.group}", containerFactory = "consumerFactory")
     public void consume(List<ConsumerRecord<String, TransactionEventDto>> records, Acknowledgment acknowledgment) {
         if (records.isEmpty()) {

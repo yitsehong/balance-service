@@ -13,6 +13,11 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ThreadFactory;
 
+/**
+ * A processor that uses the LMAX Disruptor pattern to batch transfer requests before sending them to the Raft cluster.
+ * This approach is highly efficient for handling a large volume of small requests, as it reduces the overhead
+ * of network communication and serialization by grouping multiple requests into a single batch.
+ */
 @Slf4j
 public class BatchTransferProcessor { // No longer implements Runnable
 
@@ -22,7 +27,9 @@ public class BatchTransferProcessor { // No longer implements Runnable
     private Disruptor<BatchRaftRequestEvent> disruptor;
     private RingBuffer<BatchRaftRequestEvent> ringBuffer;
 
-    // 1. Event as a static inner class
+    /**
+     * The event that is placed on the Disruptor's ring buffer. It wraps a single TransferRaftRequest.
+     */
     public static class BatchRaftRequestEvent {
         private TransferRaftRequest request;
         public void set(TransferRaftRequest request) { this.request = request; }
@@ -30,7 +37,10 @@ public class BatchTransferProcessor { // No longer implements Runnable
         public void clear() { request = null; }
     }
 
-    // 2. Handler as a static inner class
+    /**
+     * The event handler that consumes events from the ring buffer. It collects events into a batch
+     * and sends the batch to the Raft client when it's full or when the `endOfBatch` flag is true.
+     */
     public static class BatchSendEventHandler implements EventHandler<BatchRaftRequestEvent> {
         private final CustomRaftClient raftClient;
         private final int batchSize;
@@ -82,6 +92,10 @@ public class BatchTransferProcessor { // No longer implements Runnable
         this.bufferSize = bufferSize;
     }
 
+    /**
+     * Starts the Disruptor-based batch processor.
+     * This initializes the Disruptor, sets up the event handler, and starts the consumer thread.
+     */
     public void start() {
         ThreadFactory threadFactory = r -> {
             Thread t = new Thread(r);
@@ -105,6 +119,9 @@ public class BatchTransferProcessor { // No longer implements Runnable
         log.info("Disruptor-based BatchTransferProcessor started with buffer size {}.", bufferSize);
     }
 
+    /**
+     * Stops the Disruptor-based batch processor gracefully.
+     */
     public void stop() {
         if (disruptor != null) {
             log.info("Shutting down Disruptor-based BatchTransferProcessor...");
@@ -113,6 +130,15 @@ public class BatchTransferProcessor { // No longer implements Runnable
         }
     }
 
+    /**
+     * Submits a transfer request to the batch processor.
+     * The request is published to the Disruptor's ring buffer and will be processed
+     * asynchronously by the event handler.
+     *
+     * @param raftRequest The transfer request to be processed.
+     * @return A CompletableFuture that will be completed with the Raft client's reply
+     *         once the batch containing this request has been processed.
+     */
     public CompletableFuture<RaftClientReply> submit(TransferRaftRequest raftRequest) {
         if (!disruptor.getRingBuffer().hasAvailableCapacity(1)) {
              log.warn("RingBuffer is full. Rejecting request for eventKey: {}", raftRequest.getEvent().getEventKey());

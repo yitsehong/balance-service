@@ -12,6 +12,12 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadFactory;
 
+/**
+ * Manages a collection of LMAX Disruptors, partitioned by coin symbol.
+ * Each coin has its own Disruptor instance, ensuring that transactions for different
+ * cryptocurrencies are processed independently and in parallel. This class is responsible
+ * for initializing, providing access to, and shutting down these disruptors.
+ */
 @Slf4j
 public class DisruptorPartitionManager {
 
@@ -29,6 +35,11 @@ public class DisruptorPartitionManager {
         this.configService = configService;
     }
 
+    /**
+     * Initializes a separate Disruptor instance for each open coin symbol.
+     * Each disruptor is configured with a dedicated thread and a specific Kafka topic
+     * for handling balance updates for that coin.
+     */
     public void initialize() {
         Map<String, ConfigCoinSymbolEntity> openCoins = configService.findAllOpenCoinMap();
         log.info("Initializing DisruptorPartitionManager for {} coins.", openCoins.size());
@@ -60,6 +71,12 @@ public class DisruptorPartitionManager {
         log.info("DisruptorPartitionManager initialized with partitions for: {}", ringBuffers.keySet());
     }
 
+    /**
+     * Retrieves the RingBuffer for a specific coin symbol.
+     *
+     * @param coinSymbol The symbol of the coin (e.g., "BTC", "ETH").
+     * @return The RingBuffer for the specified coin, or null if no partition exists for that coin.
+     */
     public RingBuffer<TransferRingBufferEvent> getRingBuffer(String coinSymbol) {
         ConfigCoinSymbolEntity config = configService.findByCoinSymbol(coinSymbol);
         if (config == null) {
@@ -73,6 +90,11 @@ public class DisruptorPartitionManager {
         return buffer;
     }
 
+    /**
+     * Asynchronously shuts down all disruptor partitions.
+     * This method initiates a graceful shutdown in a background thread to avoid
+     * blocking the main application shutdown process.
+     */
     public void shutdown() {
         log.info("Initiating asynchronous shutdown of all disruptor partitions...");
         new Thread(() -> {

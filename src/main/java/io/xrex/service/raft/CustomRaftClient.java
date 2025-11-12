@@ -4,8 +4,8 @@ import com.alibaba.fastjson2.JSON;
 import io.xrex.enums.ReadConsistency;
 import io.xrex.model.dto.AccountIdDto;
 import io.xrex.model.dto.event.TransactionEventDto;
-import io.xrex.service.raft.command.BatchCommand;
-import io.xrex.service.raft.command.QueryCommand;
+import io.xrex.model.dto.raft.BatchCommand;
+import io.xrex.model.dto.raft.QueryCommand;
 import io.xrex.util.UUIDv7Generator;
 import org.apache.ratis.client.RaftClient;
 import org.apache.ratis.client.RaftClientConfigKeys;
@@ -22,15 +22,17 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Raft 客戶端，作為應用層與 Raft 叢集的溝通橋樑。
- * 負責將業務請求 (如轉帳、查詢) 封裝成 Raft 指令並發送出去。
+ * A client for interacting with the Raft cluster.
+ * This class encapsulates the logic for sending commands (both write and read) to the Raft group.
+ * It handles the creation of Raft-specific commands and manages client-side idempotency
+ * with a unique client ID and per-request sequence numbers.
  */
 public class CustomRaftClient {
 
     private final RaftClient client;
-    // 為每個客戶端實例產生唯一的 ID，用於在狀態機中實現冪等性。
+    // A unique ID for this client instance, used for idempotency in the state machine.
     private final String clientId = UUIDv7Generator.generate();
-    // 為每個請求產生唯一的序列號，同樣用於冪等性檢查。
+    // A sequence number generator for requests, also used for idempotency checks.
     private final AtomicLong sequenceIdGenerator = new AtomicLong();
 
 
@@ -45,43 +47,48 @@ public class CustomRaftClient {
                 .build();
     }
 
+    /**
+     * Closes the Raft client and releases any resources.
+     * @throws Exception if an error occurs during closing.
+     */
     public void close() throws Exception {
         client.close();
     }
 
     /**
-     * 發送一批轉帳交易到 Raft 叢集進行處理。
-     * 這是寫入操作的入口點。
+     * Sends a batch of transfer events to the Raft cluster for processing.
+     * This is the entry point for all write operations.
      *
-     * @param events 轉帳事件列表
-     * @return 一個 CompletableFuture，其中包含 Raft 的回覆
+     * @param events A list of transfer events.
+     * @return A CompletableFuture that will be completed with the Raft client's reply.
      */
     public CompletableFuture<RaftClientReply> sendBatch(List<TransactionEventDto> events) {
-        // 1. 產生此次批次請求的唯一序列號
+        // 1. Generate a unique sequence number for this batch request.
         long sequenceId = sequenceIdGenerator.getAndIncrement();
-        // 2. 將 clientId, sequenceId 和轉帳事件列表封裝成一個 BatchCommand
+        // 2. Encapsulate the client ID, sequence ID, and transfer events into a BatchCommand.
         BatchCommand command = new BatchCommand(clientId, sequenceId, events);
-        // 3. 異步發送指令到 Raft 叢集。
-        //    RaftClient 會自動將請求路由到 Leader 節點。
-        //    Leader 收到後會開始 Raft 的日誌複製流程。
+        // 3. Asynchronously send the command to the Raft cluster.
+        //    The RaftClient automatically routes the request to the leader node.
+        //    The leader then starts the Raft log replication process.
         return client.async().send(Message.valueOf(ByteString.copyFrom(JSON.toJSONBytes(command))));
     }
 
     /**
-     * 根據指定的一致性級別查詢帳戶餘額。
-     * 這是讀取操作的入口點。
+     * Queries an account balance with a specified consistency level.
+     * This is the entry point for all read operations.
      *
-     * @param accountId       要查詢的帳戶 ID
-     * @param readConsistency 讀取一致性級別 (STRONG, BOUNDED, EVENTUAL)
-     * @return 一個 CompletableFuture，其中包含 Raft 的回覆
+     * @param accountId The ID of the account to query.
+     * @param readConsistency The desired read consistency level (STRONG, BOUNDED, EVENTUAL).
+     * @return A CompletableFuture that will be completed with the Raft client's reply.
      */
     public CompletableFuture<RaftClientReply> queryBalance(AccountIdDto accountId, ReadConsistency readConsistency) {
         long sequenceId = sequenceIdGenerator.getAndIncrement();
-        // 1. 將查詢帳戶、一致性級別等資訊封裝成 QueryCommand
+        // 1. Encapsulate the query account, consistency level, etc., into a QueryCommand.
         QueryCommand command = new QueryCommand(clientId, sequenceId, accountId, readConsistency);
-        // 2. 發送一個唯讀請求到 Raft 叢集。
-        //    - STRONG: 請求會發給 Leader，確保讀到最新的已提交數據。
-        //    - BOUNDED/EVENTUAL: 請求可能會發給 Follower，容忍一定程度的數據延遲以換取更低的延遲和負載。
+        // 2. Send a read-only request to the Raft cluster.
+        //    - STRONG: The request is sent to the leader to ensure the latest committed data is read.
+        //    - BOUNDED/EVENTUAL: The request may be sent to a follower, tolerating some data staleness
+        //      in exchange for lower latency and load.
         return client.async().sendReadOnly(Message.valueOf(ByteString.copyFrom(JSON.toJSONBytes(command))));
     }
 }

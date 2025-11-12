@@ -20,6 +20,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+/**
+ * This service handles the core logic for transferring funds between accounts.
+ * It provides methods for batch-updating account balances and creating transaction records.
+ * The service is designed to be transactional, ensuring that all parts of a transfer
+ * either complete successfully or fail together.
+ */
 @Slf4j
 @Service
 public class TransferService {
@@ -35,6 +41,15 @@ public class TransferService {
         this.transactionDao = transactionDao;
     }
 
+    /**
+     * Performs a batch transfer operation within a single database transaction.
+     * It first attempts to update the balances of existing accounts. If an account
+     * does not exist, it creates a new one. Finally, it batch-inserts all the
+     * transaction records.
+     *
+     * @param balanceAdjustments A map where the key is the account ID and the value is the amount to adjust the balance by.
+     * @param transactions A list of transaction entities to be inserted.
+     */
     @Transactional
     public void batchTransfer(Map<AccountIdDto, BigDecimal> balanceAdjustments,
                               List<TransactionEntity> transactions) {
@@ -84,6 +99,13 @@ public class TransferService {
         return account;
     }
 
+    /**
+     * Creates a TransactionEntity from a TransactionEventDto.
+     * This method maps the data from the event to a persistable transaction entity.
+     *
+     * @param event The transaction event DTO.
+     * @return A new TransactionEntity.
+     */
     public TransactionEntity createTransactionEntityFromEvent(TransactionEventDto event) {
         long id = Long.parseLong(event.getEventKey());
         LedgerBookEntity fromLedger = event.getFrom();

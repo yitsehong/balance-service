@@ -7,6 +7,12 @@ import org.springframework.stereotype.Service;
 import javax.annotation.PostConstruct;
 import javax.annotation.PreDestroy;
 
+/**
+ * A Spring service that manages the lifecycle of the {@link BatchTransferProcessor}.
+ * This service is responsible for starting the processor when the application starts
+ * and stopping it gracefully when the application shuts down. It also provides access
+ * to the processor instance.
+ */
 @Service
 @DependsOn("raftClient")
 public class BatchTransferProcessorService {
@@ -21,16 +27,29 @@ public class BatchTransferProcessorService {
         this.batchTransferProcessor = new BatchTransferProcessor(raftClient, batchSize, bufferSize);
     }
 
+    /**
+     * Starts the batch transfer processor. This method is called automatically
+     * by Spring after the service has been initialized.
+     */
     @PostConstruct
     public void start() {
         batchTransferProcessor.start();
     }
 
+    /**
+     * Stops the batch transfer processor. This method is called automatically
+     * by Spring when the application is shutting down.
+     */
     @PreDestroy
     public void stop() {
         batchTransferProcessor.stop();
     }
 
+    /**
+     * Gets the underlying {@link BatchTransferProcessor} instance.
+     *
+     * @return The batch transfer processor.
+     */
     public BatchTransferProcessor getBatchProcessor() {
         return batchTransferProcessor;
     }

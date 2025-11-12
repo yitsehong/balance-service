@@ -34,8 +34,9 @@ import java.util.stream.Collectors;
 import static io.xrex.util.XrexConstant.ISO_DATE_FORMATTER;
 
 /**
- * gRPC 服務的實作，提供轉帳和餘額查詢的 API 端點。
- * 已重構為完全接入 Raft 狀態機。
+ * Implements the gRPC service for handling transfers and balance queries.
+ * This service provides API endpoints for creating transfers and retrieving ledger information.
+ * It is fully integrated with the Raft state machine for consensus and fault tolerance.
  */
 @Slf4j
 @GrpcService
@@ -60,46 +61,44 @@ public class TransferGrpcService extends TransferServiceGrpc.TransferServiceImpl
     }
 
     /**
-     * 處理轉帳請求，將其提交到 Raft 批次處理器。
-     * 此方法現在具備冪等性。
+     * Processes a transfer request by submitting it to the Raft batch processor.
+     * This method is idempotent, meaning that submitting the same request multiple times
+     * will not result in duplicate transfers.
+     *
+     * @param request The transfer request, containing a list of individual transfers.
+     * @param responseObserver The observer to which the response is sent.
      */
     @Override
     public void transfer(TransferListRequest request, StreamObserver<TransferResponse> responseObserver) {
-        List<String> cachedEventKeys = new ArrayList<>();
-        List<CompletableFuture<String>> processingFutures = new ArrayList<>();
+        final String requestId = request.getRequestId();
+        if (Strings.isNullOrEmpty(requestId)) {
+            responseObserver.onError(Status.INVALID_ARGUMENT
+                    .withDescription("request_id is required for idempotency.")
+                    .asRuntimeException());
+            return;
+        }
 
-        for (TransferRequest grpcRequest : request.getRequestsList()) {
-            // 1. 檢查 request_id
-            if (Strings.isNullOrEmpty(grpcRequest.getRequestId())) {
-                responseObserver.onError(Status.INVALID_ARGUMENT
-                        .withDescription("request_id is required for idempotency.")
-                        .asRuntimeException());
+        Optional<IdempotencyRecordDto> recordOpt = idempotencyService.findRecord(requestId);
+        if (recordOpt.isPresent()) {
+            IdempotencyRecordDto record = recordOpt.get();
+            if ("SUCCESS".equals(record.getStatus())) {
+                TransferResponse cachedResponse = JSON.parseObject(record.getResponseData(), TransferResponse.class);
+                responseObserver.onNext(cachedResponse);
+                responseObserver.onCompleted();
                 return;
-            }
-
-            // 2. 檢查冪等性紀錄
-            Optional<IdempotencyRecordDto> recordOpt = idempotencyService.findRecord(grpcRequest.getRequestId());
-
-            if (recordOpt.isPresent()) {
-                // 3a. 紀錄已存在，直接從快取處理
-                IdempotencyRecordDto record = recordOpt.get();
-                if ("SUCCESS".equals(record.getStatus())) {
-                    TransferResponse cachedResponse = JSON.parseObject(record.getResponseData(), TransferResponse.class);
-                    cachedEventKeys.addAll(cachedResponse.getEventKeyList());
-                }
-                // 如果是失敗的紀錄，我們這次將其視為新請求重新處理
-            } else {
-                // 3b. 新請求，提交給Raft處理
-                processingFutures.add(processAndSaveTransfer(grpcRequest));
             }
         }
 
+        List<CompletableFuture<String>> processingFutures = new ArrayList<>();
+        for (TransferRequest grpcRequest : request.getRequestsList()) {
+            processingFutures.add(processAndSaveTransfer(grpcRequest, requestId));
+        }
+
         if (processingFutures.isEmpty()) {
-            // 所有請求都已快取
+            // No requests to process
             TransferResponse response = TransferResponse.newBuilder()
                     .setSuccess(true)
-                    .addAllEventKey(cachedEventKeys)
-                    .setMessage("All transfers were already processed.")
+                    .setMessage("No transfers to process.")
                     .build();
             responseObserver.onNext(response);
             responseObserver.onCompleted();
@@ -117,12 +116,9 @@ public class TransferGrpcService extends TransferServiceGrpc.TransferServiceImpl
                                 .map(CompletableFuture::join)
                                 .toList();
 
-                        List<String> allEventKeys = new ArrayList<>(cachedEventKeys);
-                        allEventKeys.addAll(processedEventKeys);
-
                         TransferResponse response = TransferResponse.newBuilder()
                                 .setSuccess(true)
-                                .addAllEventKey(allEventKeys)
+                                .addAllEventKey(processedEventKeys)
                                 .setMessage("All transfers submitted to Raft cluster for processing.")
                                 .build();
                         responseObserver.onNext(response);
@@ -131,9 +127,17 @@ public class TransferGrpcService extends TransferServiceGrpc.TransferServiceImpl
                 });
     }
 
-    private CompletableFuture<String> processAndSaveTransfer(TransferRequest grpcRequest) {
+    /**
+     * Processes and saves a single transfer request.
+     * This method generates a unique event key for the transfer, submits it to the Raft cluster,
+     * and saves an idempotency record upon completion.
+     *
+     * @param grpcRequest The individual transfer request.
+     * @param requestId The idempotency key for the overall request.
+     * @return A CompletableFuture that will complete with the event key of the transfer.
+     */
+    private CompletableFuture<String> processAndSaveTransfer(TransferRequest grpcRequest, String requestId) {
         final String eventKey = snowflakeIdGenerator.nextIdString();
-        final String requestId = grpcRequest.getRequestId();
 
         CompletableFuture<RaftClientReply> raftFuture = processSingleTransfer(grpcRequest, eventKey);
         CompletableFuture<String> resultFuture = new CompletableFuture<>();
@@ -160,7 +164,11 @@ public class TransferGrpcService extends TransferServiceGrpc.TransferServiceImpl
 
 
     /**
-     * 處理餘額查詢請求，使用 EVENTUAL 一致性從 Raft 狀態機讀取。
+     * Retrieves ledger information from memory with eventual consistency.
+     * This method queries the Raft state machine for the balance.
+     *
+     * @param request The ledger request, containing the account ID.
+     * @param responseObserver The observer to which the response is sent.
      */
     @Override
     public void getLedgerFromMemory(LedgerRequest request, StreamObserver<LedgerResponse> responseObserver) {
@@ -183,6 +191,13 @@ public class TransferGrpcService extends TransferServiceGrpc.TransferServiceImpl
                 });
     }
 
+    /**
+     * Retrieves ledger information from the database.
+     * This provides strongly consistent data but may have higher latency.
+     *
+     * @param request The ledger request.
+     * @param responseObserver The observer for the response.
+     */
     @Override
     public void getLedgerFromDB(LedgerRequest request, StreamObserver<LedgerResponse> responseObserver) {
         try {
@@ -195,6 +210,12 @@ public class TransferGrpcService extends TransferServiceGrpc.TransferServiceImpl
         }
     }
 
+    /**
+     * Retrieves all balances for a given user from the database.
+     *
+     * @param request The balance request.
+     * @param responseObserver The observer for the response.
+     */
     @Override
     public void getBalanceFromDB(BalanceRequest request, StreamObserver<BalanceResponse> responseObserver) {
         try {
@@ -217,6 +238,13 @@ public class TransferGrpcService extends TransferServiceGrpc.TransferServiceImpl
         }
     }
 
+    /**
+     * Processes a single transfer by creating ledger entries and submitting them to the Raft service.
+     *
+     * @param grpcRequest The gRPC transfer request.
+     * @param eventKey A unique key for the event.
+     * @return A CompletableFuture that completes with the Raft client reply.
+     */
     private CompletableFuture<RaftClientReply> processSingleTransfer(TransferRequest grpcRequest, String eventKey) {
         BigDecimal amount = new BigDecimal(grpcRequest.getAmount());
 
@@ -245,6 +273,13 @@ public class TransferGrpcService extends TransferServiceGrpc.TransferServiceImpl
         return batchTransferProcessorService.getBatchProcessor().submit(transferRaftRequest);
     }
 
+    /**
+     * Finds an account ID DTO by its chainup ID and asset type.
+     *
+     * @param chainupId The user's chainup ID.
+     * @param assetType The type of the asset.
+     * @return An AccountIdDto.
+     */
     private AccountIdDto findAccountIdByChainupIdAndAssetType(Integer chainupId, Integer assetType) {
         ConfigAccountTypeEntity config = configService.findByAssetType(assetType);
         return AccountIdDto.builder().chainupId(chainupId)
@@ -253,6 +288,12 @@ public class TransferGrpcService extends TransferServiceGrpc.TransferServiceImpl
                 .accountTag(config.getTag()).build();
     }
 
+    /**
+     * Converts an AccountEntity to a LedgerResponse.
+     *
+     * @param accountEntity The account entity to convert.
+     * @return A LedgerResponse.
+     */
     private LedgerResponse toLedgerResponse(AccountEntity accountEntity) {
         ConfigAccountTypeEntity configAccountType = configService.findByAssetType(accountEntity.getType());
         return LedgerResponse.newBuilder()

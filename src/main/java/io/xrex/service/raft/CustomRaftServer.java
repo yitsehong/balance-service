@@ -14,6 +14,12 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Comparator;
 
+/**
+ * A wrapper class for the Apache Ratis RaftServer.
+ * This class simplifies the configuration and lifecycle management of a Raft server instance.
+ * It sets up the necessary properties, storage directories, and network configurations
+ * for a peer in the Raft group.
+ */
 @Slf4j
 public class CustomRaftServer {
 
@@ -61,10 +67,18 @@ public class CustomRaftServer {
                 .build();
     }
 
+    /**
+     * Starts the Raft server.
+     * @throws IOException if an I/O error occurs during startup.
+     */
     public void start() throws IOException {
         server.start();
     }
 
+    /**
+     * Stops the Raft server and releases its resources.
+     * @throws IOException if an I/O error occurs during shutdown.
+     */
     public void stop() throws IOException {
         server.close();
     }

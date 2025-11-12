@@ -8,11 +8,11 @@ import io.xrex.event.disruptor.TransferRingBufferEvent;
 import io.xrex.event.handler.BalanceUpdateEventHandlerFactory;
 import io.xrex.model.dto.AccountIdDto;
 import io.xrex.model.dto.event.TransactionEventDto;
+import io.xrex.model.dto.raft.BatchCommand;
+import io.xrex.model.dto.raft.QueryCommand;
 import io.xrex.service.ConfigService;
 import io.xrex.service.DisruptorPartitionManager;
 import io.xrex.service.RocksDBService;
-import io.xrex.service.raft.command.BatchCommand;
-import io.xrex.service.raft.command.QueryCommand;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.ratis.protocol.Message;
 import org.apache.ratis.protocol.RaftGroupId;
@@ -38,10 +38,17 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 
+/**
+ * A Raft-managed state machine for processing balance transfers.
+ * This state machine is the core of the consensus mechanism, ensuring that all nodes in the
+ * Raft cluster agree on the state of account balances. It receives transaction commands,
+ * applies them to a local RocksDB instance, and uses a partitioned LMAX Disruptor for
+ * high-throughput, low-latency processing of balance updates.
+ */
 @Slf4j
 public class BalanceStateMachine extends BaseStateMachine {
 
-    // 1. 修改 Translator 類型為 EventTranslatorOneArg，並專注於處理單個 DTO
+    // 1. Modify the Translator type to EventTranslatorOneArg and focus on processing a single DTO
     private static final EventTranslatorOneArg<TransferRingBufferEvent, TransactionEventDto> TRANSACTION_EVENT_TRANSLATOR =
             (event, sequence, eventData) -> {
                 event.setEventKey(eventData.getEventKey());
@@ -86,6 +93,16 @@ public class BalanceStateMachine extends BaseStateMachine {
         this.rocksDBService = rocksDBService;
     }
 
+    /**
+     * Initializes the state machine. This method is called by the Raft framework when the server starts.
+     * It sets up the RocksDB instance, initializes the Disruptor partition manager, and prepares the
+     * semaphore for controlling in-flight requests.
+     *
+     * @param server The Raft server instance.
+     * @param groupId The ID of the Raft group.
+     * @param storage The storage for the Raft log and state machine.
+     * @throws IOException if an I/O error occurs.
+     */
     @Override
     public void initialize(RaftServer server, RaftGroupId groupId, RaftStorage storage) throws IOException {
         super.initialize(server, groupId, storage);
@@ -109,6 +126,14 @@ public class BalanceStateMachine extends BaseStateMachine {
         this.disruptorPartitionManager.initialize();
     }
 
+    /**
+     * Applies a transaction to the state machine. This is the entry point for all write operations.
+     * The method decodes the transaction command, checks for duplicates, and then publishes the
+     * transaction events to the appropriate Disruptor ring buffer.
+     *
+     * @param trx The transaction context, containing the log entry.
+     * @return A CompletableFuture that completes with a message indicating the result of the operation.
+     */
     @Override
     public CompletableFuture<Message> applyTransaction(TransactionContext trx) {
         try {
@@ -124,7 +149,7 @@ public class BalanceStateMachine extends BaseStateMachine {
             }
             MDC.put("eventKeys", command.getEvents().get(0).getEventKey());
 
-            // 2. 修改發布邏輯：遍歷 DTO 列表，為每個 DTO 單獨發布一個事件
+            // 2. Modify the publishing logic: iterate through the DTO list and publish an event for each DTO
             for (TransactionEventDto eventDto : command.getEvents()) {
                 try {
                     // Acquire a permit before publishing. This will block if the system is overloaded.
@@ -158,8 +183,13 @@ public class BalanceStateMachine extends BaseStateMachine {
         }
     }
 
-    // ... (其餘程式碼保持不變) ...
-
+    /**
+     * Executes a query against the state machine. This is the entry point for all read operations.
+     * The method supports different read consistencies (STRONG, BOUNDED, EVENTUAL).
+     *
+     * @param request The query request message.
+     * @return A CompletableFuture that completes with the query result.
+     */
     @Override
     public CompletableFuture<Message> query(Message request) {
         final QueryCommand command = JSON.parseObject(request.getContent().toByteArray(), QueryCommand.class);
@@ -173,10 +203,23 @@ public class BalanceStateMachine extends BaseStateMachine {
         };
     }
 
+    /**
+     * Performs a strongly consistent query by reading directly from the local RocksDB instance.
+     *
+     * @param accountId The account to query.
+     * @return A CompletableFuture with the balance.
+     */
     private CompletableFuture<Message> queryStrong(AccountIdDto accountId) {
         return CompletableFuture.completedFuture(Message.valueOf(readFromRocksDB(accountId).toString()));
     }
 
+    /**
+     * Performs a boundedly stale query. If the replica is not too far behind the leader,
+     * it reads from the local RocksDB. Otherwise, it performs a strong query.
+     *
+     * @param accountId The account to query.
+     * @return A CompletableFuture with the balance.
+     */
     private CompletableFuture<Message> queryBounded(AccountIdDto accountId) {
         long lag = getLag();
         if (lag < 10) {
@@ -186,11 +229,23 @@ public class BalanceStateMachine extends BaseStateMachine {
         }
     }
 
+    /**
+     * Performs an eventually consistent query using the RocksDBService, which may use a cache.
+     *
+     * @param accountId The account to query.
+     * @return A CompletableFuture with the balance.
+     */
     private CompletableFuture<Message> queryEventual(AccountIdDto accountId) {
         BigDecimal balance = rocksDBService.queryEventual(accountId);
         return CompletableFuture.completedFuture(Message.valueOf(balance.toPlainString()));
     }
 
+    /**
+     * Reads an account's balance directly from the local RocksDB instance.
+     *
+     * @param accountId The account to read.
+     * @return The account balance, or BigDecimal.ZERO if the account is not found.
+     */
     private BigDecimal readFromRocksDB(AccountIdDto accountId) {
         try {
             byte[] key = JSON.toJSONBytes(accountId);
@@ -201,6 +256,11 @@ public class BalanceStateMachine extends BaseStateMachine {
         }
     }
 
+    /**
+     * Calculates the lag of this state machine replica behind the leader.
+     *
+     * @return The lag in terms of log index.
+     */
     private long getLag() {
         try {
             return getServer().get().getDivision(groupId).getStateMachine().getLastAppliedTermIndex().getIndex() - getLastAppliedTermIndex().getIndex();
@@ -209,6 +269,13 @@ public class BalanceStateMachine extends BaseStateMachine {
         }
     }
 
+    /**
+     * Takes a snapshot of the current state machine state.
+     * This is done by creating a checkpoint of the RocksDB database.
+     *
+     * @return The log index of the last applied transaction included in the snapshot.
+     * @throws IOException if an I/O error occurs during snapshot creation.
+     */
     @Override
     public long takeSnapshot() throws IOException {
         try (Checkpoint checkpoint = Checkpoint.create(db)) {
@@ -224,10 +291,23 @@ public class BalanceStateMachine extends BaseStateMachine {
         }
     }
 
+    /**
+     * Checks if a request is a duplicate based on the client ID and sequence ID.
+     *
+     * @param clientId The ID of the client that sent the request.
+     * @param sequenceId The sequence ID of the request.
+     * @return true if the request is a duplicate, false otherwise.
+     */
     private boolean isDuplicate(String clientId, long sequenceId) {
         return clientSequenceIds.getOrDefault(clientId, -1L) >= sequenceId;
     }
 
+    /**
+     * Closes the state machine and releases all resources.
+     * This includes shutting down the Disruptor and closing the RocksDB instance.
+     *
+     * @throws IOException if an I/O error occurs.
+     */
     @Override
     public void close() throws IOException {
         if (disruptorPartitionManager != null) {

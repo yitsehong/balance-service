@@ -24,8 +24,7 @@ public class TestController {
     @PostMapping("/api/v1/test")
     public void test(@RequestParam(value = "request_count") int requestCount,
                      @RequestParam(value = "loop") int loop) throws InterruptedException {
-
-
+        
         StreamObserver<TransferResponse> responseObserver = new StreamObserver<>() {
             @Override
             public void onNext(TransferResponse value) {
@@ -63,18 +62,16 @@ public class TestController {
                         .setFromUid(1).setFromType(type).setToUid(toUid).setToType(type)
                         .setAmount(amount).setScene("TRANSFER_COMMON").setMeta("0")
                         .setRefType("test").setRefId((i + j) % 2 == 0 ? 1 : 2).setOpUid(1).setOpIp("127.0.0.1")
-                        .setRequestId(UUIDv7Generator.generate()).build();
+                        .build();
                 requests.add(request);
-                TransferListRequest listRequest = TransferListRequest.newBuilder().addAllRequests(requests).build();
+                TransferListRequest listRequest = TransferListRequest.newBuilder().addAllRequests(requests).setRequestId(UUIDv7Generator.generate()).build();
                 try {
                     transferGrpcService.transfer(listRequest, responseObserver);
                 } catch (Exception e) {
                     log.error("Test transfer failed", e);
                 }
             }
-            if (loop % 200 == 0) {
-                Thread.sleep(10);
-            }
+            Thread.sleep(500);
         }
     }
 
@@ -103,8 +100,8 @@ public class TestController {
                         .setFromUid(value.getChainupId()).setFromType(value.getType()).setToUid(1).setToType(value.getType())
                         .setAmount(value.getBalance()).setScene("TRANSFER_COMMON").setMeta("0")
                         .setRefType("test").setRefId(ThreadLocalRandom.current().nextInt(1, 3)).setOpUid(1).setOpIp("127.0.0.1")
-                        .setRequestId(UUIDv7Generator.generate()).build();
-                TransferListRequest listRequest = TransferListRequest.newBuilder().addAllRequests(List.of(request)).build();
+                        .build();
+                TransferListRequest listRequest = TransferListRequest.newBuilder().addAllRequests(List.of(request)).setRequestId(UUIDv7Generator.generate()).build();
                 transferGrpcService.transfer(listRequest, observer);
             }
 

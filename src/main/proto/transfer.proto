@@ -24,7 +24,8 @@ service TransferService {
 
 // The request message containing the list of transfer details.
 message TransferListRequest {
-  repeated TransferRequest requests = 1;
+  string request_id = 1;
+  repeated TransferRequest requests = 2;
 }
 
 // The request message containing the transfer details.
@@ -42,7 +43,6 @@ message TransferRequest {
   int64 ref_id = 11;
   int32 op_uid = 12;
   string op_ip = 13;
-  string request_id = 14;
 }
 
 // The response message containing the transaction ID.
