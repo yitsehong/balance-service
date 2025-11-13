@@ -213,7 +213,6 @@ public class RocksDBService {
      */
     private void warmUpCacheFromDB() {
         int pageSize = 5000;
-        int threadPoolSize = Runtime.getRuntime().availableProcessors(); // Or a custom number of threads
 
         // First, get the total number of pages
         Pageable initialPageable = PageRequest.of(0, pageSize);
@@ -221,15 +220,14 @@ public class RocksDBService {
         int totalPages = firstPage.getTotalPages();
         long totalElements = firstPage.getTotalElements();
 
-        log.info("Starting cache warm-up with {} threads for {} pages, total {} accounts",
-                threadPoolSize, totalPages, totalElements);
+        log.info("Starting cache warm-up with virtual threads for {} pages, total {} accounts",
+                totalPages, totalElements);
 
-        ExecutorService executorService = Executors.newFixedThreadPool(threadPoolSize);
         CountDownLatch latch = new CountDownLatch(totalPages);
         AtomicInteger processedCount = new AtomicInteger(0);
         AtomicInteger errorCount = new AtomicInteger(0);
 
-        try {
+        try (ExecutorService executorService = Executors.newVirtualThreadPerTaskExecutor()) {
             // Submit all page processing tasks
             for (int pageNumber = 0; pageNumber < totalPages; pageNumber++) {
                 final int currentPage = pageNumber;
@@ -259,16 +257,6 @@ public class RocksDBService {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             log.error("Cache warm-up interrupted", e);
-        } finally {
-            executorService.shutdown();
-            try {
-                if (!executorService.awaitTermination(60, TimeUnit.SECONDS)) {
-                    executorService.shutdownNow();
-                }
-            } catch (InterruptedException e) {
-                executorService.shutdownNow();
-                Thread.currentThread().interrupt();
-            }
         }
     }
 
