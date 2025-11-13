@@ -107,7 +107,7 @@ public class TransferService {
      * @return A new TransactionEntity.
      */
     public TransactionEntity createTransactionEntityFromEvent(TransactionEventDto event) {
-        long id = Long.parseLong(event.getEventKey());
+        long id = Long.parseLong(event.getTransactionId());
         LedgerBookEntity fromLedger = event.getFrom();
         LedgerBookEntity toLedger = event.getTo();
 

@@ -127,15 +127,11 @@ public class TransferGrpcService extends TransferServiceGrpc.TransferServiceImpl
                 responseObserver.onError(status.asRuntimeException());
             } else {
                 // This block also runs on a virtual thread.
-                List<String> processedEventKeys = processingFutures.stream()
-                        .map(CompletableFuture::join)
-                        .toList();
+                List<String> transactionIds = processingFutures.stream().map(CompletableFuture::join).toList();
 
                 TransferResponse response = TransferResponse.newBuilder()
-                        .setSuccess(true)
-                        .addAllTransactionIds(processedEventKeys)
-                        .setMessage("All transfers submitted to Raft cluster for processing.")
-                        .build();
+                        .setSuccess(true).addAllTransactionIds(transactionIds)
+                        .setMessage("All transfers submitted to Raft cluster for processing.").build();
 
                 try {
                     String responseJson = JsonFormat.printer().print(response);
@@ -162,9 +158,9 @@ public class TransferGrpcService extends TransferServiceGrpc.TransferServiceImpl
      * @return A CompletableFuture that will complete with the event key of the transfer.
      */
     private CompletableFuture<String> processAndSaveTransfer(TransferRequest grpcRequest, String requestId) {
-        final String eventKey = snowflakeIdGenerator.nextIdString();
+        final String transactionId = snowflakeIdGenerator.nextIdString();
 
-        CompletableFuture<RaftClientReply> raftFuture = processSingleTransfer(grpcRequest, eventKey);
+        CompletableFuture<RaftClientReply> raftFuture = processSingleTransfer(grpcRequest, transactionId);
         CompletableFuture<String> resultFuture = new CompletableFuture<>();
 
         raftFuture.whenComplete((reply, ex) -> {
@@ -172,7 +168,7 @@ public class TransferGrpcService extends TransferServiceGrpc.TransferServiceImpl
                 log.error("Transfer failed for requestId: {}", requestId, ex);
                 resultFuture.completeExceptionally(ex);
             } else {
-                resultFuture.complete(eventKey);
+                resultFuture.complete(transactionId);
             }
         });
 
@@ -259,15 +255,15 @@ public class TransferGrpcService extends TransferServiceGrpc.TransferServiceImpl
      * Processes a single transfer by creating ledger entries and submitting them to the Raft service.
      *
      * @param grpcRequest The gRPC transfer request.
-     * @param eventKey A unique key for the event.
+     * @param transactionId A unique key for the event.
      * @return A CompletableFuture that completes with the Raft client reply.
      */
-    private CompletableFuture<RaftClientReply> processSingleTransfer(TransferRequest grpcRequest, String eventKey) {
+    private CompletableFuture<RaftClientReply> processSingleTransfer(TransferRequest grpcRequest, String transactionId) {
         BigDecimal amount = new BigDecimal(grpcRequest.getAmount());
 
         ConfigAccountTypeEntity configAccountType = configService.findByAssetType(grpcRequest.getFromType());
         LedgerBookEntity fromLedger = LedgerBookEntity.builder()
-                .idempotencyKey(eventKey)
+                .idempotencyKey(transactionId)
                 .chainupId(grpcRequest.getFromUid())
                 .assetType(grpcRequest.getFromType())
                 .coinSymbol(configAccountType.getCoinSymbol())
@@ -275,7 +271,7 @@ public class TransferGrpcService extends TransferServiceGrpc.TransferServiceImpl
                 .refType(grpcRequest.getRefType()).refId(grpcRequest.getRefId()).build();
 
         LedgerBookEntity toLedger = LedgerBookEntity.builder()
-                .idempotencyKey(eventKey)
+                .idempotencyKey(transactionId)
                 .chainupId(grpcRequest.getToUid())
                 .assetType(grpcRequest.getToType())
                 .coinSymbol(configAccountType.getCoinSymbol())
@@ -283,7 +279,7 @@ public class TransferGrpcService extends TransferServiceGrpc.TransferServiceImpl
                 .refType(grpcRequest.getRefType()).refId(grpcRequest.getRefId()).build();
 
         TransactionEventDto event = TransactionEventDto.builder()
-                .eventKey(eventKey).from(fromLedger).to(toLedger)
+                .transactionId(transactionId).from(fromLedger).to(toLedger)
                 .meta(grpcRequest.getMeta())
                 .opUid(grpcRequest.getOpUid()).opIp(grpcRequest.getOpIp()).build();
         TransferRaftRequest transferRaftRequest = new TransferRaftRequest(event);

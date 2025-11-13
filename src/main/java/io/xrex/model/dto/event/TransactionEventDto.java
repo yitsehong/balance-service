@@ -11,7 +11,7 @@ import lombok.*;
 @ToString
 public class TransactionEventDto {
 
-    private String eventKey;
+    private String transactionId;
     private String meta;
     private Integer opUid;
     private String opIp;

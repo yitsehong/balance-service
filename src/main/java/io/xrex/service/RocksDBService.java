@@ -3,11 +3,11 @@ package io.xrex.service;
 import com.alibaba.fastjson2.JSON;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
-import io.xrex.event.disruptor.TransferRingBufferEvent;
 import io.xrex.exception.InsufficientFundsException;
 import io.xrex.model.dto.AccountIdDto;
 import io.xrex.model.dto.BalanceDto;
 import io.xrex.model.dto.event.TransactionEventDto;
+import io.xrex.model.dto.event.TransferRingBufferEvent;
 import io.xrex.model.entity.AccountEntity;
 import io.xrex.model.entity.ConfigAccountTypeEntity;
 import io.xrex.model.entity.LedgerBookEntity;
@@ -107,7 +107,7 @@ public class RocksDBService {
      */
     public TransactionEventDto updateBalanceOnRocksDB(TransferRingBufferEvent event,
                                                       AccountIdDto fromAccountId, AccountIdDto toAccountId) {
-        String eventKey = event.getEventKey();
+        String transactionId = event.getTransactionId();
         BigDecimal amount = event.getAmount();
         String scene = event.getScene();
         String refType = event.getRefType();
@@ -121,7 +121,7 @@ public class RocksDBService {
         boolean ignoreCheck = fromAccountId.getChainupId() == 1; // Assuming chainupId 1 is a system/internal account
         if (!ignoreCheck && fromAccountBalance.getAmount().compareTo(amount) < 0) {
             log.error("Transaction [{}]: Insufficient funds for user {}. Required: {}, Available: {}",
-                    eventKey, fromAccountId.getChainupId(), amount, fromAccountBalance.getAmount());
+                    transactionId, fromAccountId.getChainupId(), amount, fromAccountBalance.getAmount());
             throw new InsufficientFundsException(fromAccountId.getChainupId() + " has insufficient funds, amount=" + amount + ", now=" + fromAccountBalance.getAmount());
         }
 
@@ -150,7 +150,7 @@ public class RocksDBService {
             l1Cache.put(toAccountId, toAfterBalance);
 
         } catch (RocksDBException e) {
-            log.error("Error during atomic balance update for eventKey: {}", eventKey, e);
+            log.error("Error during atomic balance update for transactionId: {}", transactionId, e);
             // Re-throw as a runtime exception to be caught by the EventHandler
             throw new RuntimeException("Failed to atomically update balances in RocksDB", e);
         }
@@ -159,7 +159,7 @@ public class RocksDBService {
         // Create ledger book entries
         LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
         LedgerBookEntity from = LedgerBookEntity.builder()
-                .idempotencyKey(eventKey)
+                .idempotencyKey(transactionId)
                 .chainupId(fromAccountId.getChainupId())
                 .assetType(fromAccountId.getAssetType())
                 .amount(amount.negate())
@@ -170,7 +170,7 @@ public class RocksDBService {
                 .createdTime(now).updatedTime(now).build();
 
         LedgerBookEntity to = LedgerBookEntity.builder()
-                .idempotencyKey(eventKey)
+                .idempotencyKey(transactionId)
                 .chainupId(toAccountId.getChainupId())
                 .assetType(toAccountId.getAssetType())
                 .amount(amount)
@@ -180,7 +180,7 @@ public class RocksDBService {
                 .scene(scene).refType(refType).refId(refId)
                 .createdTime(now).updatedTime(now).build();
 
-        return TransactionEventDto.builder().eventKey(eventKey)
+        return TransactionEventDto.builder().transactionId(transactionId)
                 .from(from).to(to).meta(event.getMeta()).opUid(event.getOpUid()).opIp(event.getOpIp()).build();
     }
 

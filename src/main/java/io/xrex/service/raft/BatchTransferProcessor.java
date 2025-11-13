@@ -141,7 +141,7 @@ public class BatchTransferProcessor { // No longer implements Runnable
      */
     public CompletableFuture<RaftClientReply> submit(TransferRaftRequest raftRequest) {
         if (!disruptor.getRingBuffer().hasAvailableCapacity(1)) {
-             log.warn("RingBuffer is full. Rejecting request for eventKey: {}", raftRequest.getEvent().getEventKey());
+             log.warn("RingBuffer is full. Rejecting request for transactionId: {}", raftRequest.getEvent().getTransactionId());
              raftRequest.getFuture().completeExceptionally(new IllegalStateException("System overloaded. RingBuffer is full."));
              return raftRequest.getFuture();
         }

@@ -2,9 +2,9 @@ package io.xrex.service;
 
 import com.lmax.disruptor.RingBuffer;
 import com.lmax.disruptor.dsl.Disruptor;
-import io.xrex.event.disruptor.TransferRingBufferEvent;
 import io.xrex.event.handler.BalanceUpdateEventHandler;
 import io.xrex.event.handler.BalanceUpdateEventHandlerFactory;
+import io.xrex.model.dto.event.TransferRingBufferEvent;
 import io.xrex.model.entity.ConfigCoinSymbolEntity;
 import lombok.extern.slf4j.Slf4j;
 

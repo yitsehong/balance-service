@@ -4,10 +4,10 @@ import com.alibaba.fastjson2.JSON;
 import com.lmax.disruptor.EventTranslatorOneArg;
 import com.lmax.disruptor.RingBuffer;
 import io.xrex.enums.ReadConsistency;
-import io.xrex.event.disruptor.TransferRingBufferEvent;
 import io.xrex.event.handler.BalanceUpdateEventHandlerFactory;
 import io.xrex.model.dto.AccountIdDto;
 import io.xrex.model.dto.event.TransactionEventDto;
+import io.xrex.model.dto.event.TransferRingBufferEvent;
 import io.xrex.model.dto.raft.BatchCommand;
 import io.xrex.model.dto.raft.QueryCommand;
 import io.xrex.service.ConfigService;
@@ -47,7 +47,7 @@ public class BalanceStateMachine extends BaseStateMachine {
     // 1. Modify the Translator type to EventTranslatorOneArg and focus on processing a single DTO
     private static final EventTranslatorOneArg<TransferRingBufferEvent, TransactionEventDto> TRANSACTION_EVENT_TRANSLATOR =
             (event, sequence, eventData) -> {
-                event.setEventKey(eventData.getEventKey());
+                event.setTransactionId(eventData.getTransactionId());
                 event.setFromChainupId(eventData.getFrom().getChainupId());
                 event.setFromAssetType(eventData.getFrom().getAssetType());
                 event.setToChainupId(eventData.getTo().getChainupId());
@@ -78,10 +78,8 @@ public class BalanceStateMachine extends BaseStateMachine {
     private Integer maxInFlightRequests;
 
     private Semaphore inFlightRequestsSemaphore;
-
     private DisruptorPartitionManager disruptorPartitionManager;
     private BalanceUpdateEventHandlerFactory balanceUpdateEventHandlerFactory;
-
 
     public BalanceStateMachine(KafkaTemplate<String, TransactionEventDto> kafkaTemplate,
                                ConfigService configService, RocksDBService rocksDBService) {
@@ -149,7 +147,7 @@ public class BalanceStateMachine extends BaseStateMachine {
             try {
                 // Acquire a permit before publishing. This will block if the system is overloaded.
                 if (!inFlightRequestsSemaphore.tryAcquire(1, 10, TimeUnit.SECONDS)) {
-                    log.error("Timeout acquiring semaphore permit. System is overloaded. Rejecting transaction for eventKey: {}", eventDto.getEventKey());
+                    log.error("Timeout acquiring semaphore permit. System is overloaded. Rejecting transaction for transactionId: {}", eventDto.getTransactionId());
                     // We can't easily fail just one part of a batch. Failing the whole batch.
                     return CompletableFuture.completedFuture(Message.valueOf("System overloaded. Please try again later."));
                 }

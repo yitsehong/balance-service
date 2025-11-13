@@ -1,9 +1,9 @@
 package io.xrex.event.handler;
 
 import com.lmax.disruptor.EventHandler;
-import io.xrex.event.disruptor.TransferRingBufferEvent;
 import io.xrex.model.dto.AccountIdDto;
 import io.xrex.model.dto.event.TransactionEventDto;
+import io.xrex.model.dto.event.TransferRingBufferEvent;
 import io.xrex.model.entity.ConfigAccountTypeEntity;
 import io.xrex.service.ConfigService;
 import io.xrex.service.RocksDBService;
@@ -42,14 +42,14 @@ public class BalanceUpdateEventHandler implements EventHandler<TransferRingBuffe
             ConfigAccountTypeEntity toConfigAccountType = configService.findByAssetType(event.getToAssetType());
             AccountIdDto toAccountId = new AccountIdDto(event.getToChainupId(), toConfigAccountType);
             if (fromAccountId.equals(toAccountId)) {
-                log.error("[BalanceUpdateEventHandler] Transaction [{}]: From and to accounts are the same. Skipping.", event.getEventKey());
+                log.error("[BalanceUpdateEventHandler] Transaction [{}]: From and to accounts are the same. Skipping.", event.getTransactionId());
                 // TODO handle exception
-                throw new RuntimeException("From and to accounts are the same. Skipping, eventKey=" + event.getEventKey());
+                throw new RuntimeException("From and to accounts are the same. Skipping, transactionId=" + event.getTransactionId());
             }
 
             TransactionEventDto persistenceEvent = rocksDBService.updateBalanceOnRocksDB(event, fromAccountId, toAccountId);
-            kafkaTemplate.send(topic, event.getEventKey(), persistenceEvent);
-            event.getFuture().complete(event.getEventKey());
+            kafkaTemplate.send(topic, event.getTransactionId(), persistenceEvent);
+            event.getFuture().complete(event.getTransactionId());
         } catch (Exception e) {
             log.error("[BalanceUpdateEventHandler] Error processing transfer event: {}", event, e);
             event.getFuture().completeExceptionally(e); // 其他未知異常

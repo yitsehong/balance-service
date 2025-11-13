@@ -1,4 +1,4 @@
-package io.xrex.event.disruptor;
+package io.xrex.model.dto.event;
 
 import lombok.Data;
 
@@ -8,7 +8,7 @@ import java.util.concurrent.CompletableFuture;
 @Data
 public class TransferRingBufferEvent {
 
-    private String eventKey;
+    private String transactionId;
     private Integer fromChainupId;
     private Integer fromAssetType;
     private Integer toChainupId;
@@ -25,7 +25,7 @@ public class TransferRingBufferEvent {
     private CompletableFuture<String> future;
 
     public void clear() {
-        eventKey = null;
+        transactionId = null;
         fromChainupId = null;
         fromAssetType = null;
         toChainupId = null;

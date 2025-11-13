@@ -8,7 +8,7 @@
     <!-- log with color -->
     <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
         <encoder>
-            <pattern>%d %boldYellow([%thread]) %highlight(%-5level) [%X{eventKeys}] %X{request_id} %X{xrex_user_id} %cyan(%logger{36}) - %clr(%msg%n)</pattern>
+            <pattern>%d %boldYellow([%thread]) %highlight(%-5level) %cyan(%logger{36}) - %clr(%msg%n)</pattern>
         </encoder>
     </appender>
 
