@@ -4,7 +4,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 
-public class MD5Util {
+public final class MD5Util {
     /**
      * 获取String的MD5值
      *
@@ -26,11 +26,6 @@ public class MD5Util {
         } catch (NoSuchAlgorithmException e) {
             return "";
         }
-    }
-
-    public static String generateMD5(String requestId, String requestBody) {
-        String combinedString = requestId + requestBody;
-        return getMD5(combinedString);
     }
 
     private static String bytesToHex(byte[] md5Array) {

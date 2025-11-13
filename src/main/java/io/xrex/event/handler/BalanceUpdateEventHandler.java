@@ -8,7 +8,6 @@ import io.xrex.model.entity.ConfigAccountTypeEntity;
 import io.xrex.service.ConfigService;
 import io.xrex.service.RocksDBService;
 import lombok.extern.slf4j.Slf4j;
-import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.kafka.core.KafkaTemplate;
 
@@ -36,7 +35,6 @@ public class BalanceUpdateEventHandler implements EventHandler<TransferRingBuffe
 
     @Override
     public void onEvent(TransferRingBufferEvent event, long sequence, boolean endOfBatch) {
-        MDC.put("eventKeys", event.getEventKey());
         try {
             ConfigAccountTypeEntity fromConfigAccountType = configService.findByAssetType(event.getFromAssetType());
             AccountIdDto fromAccountId = new AccountIdDto(event.getFromChainupId(), fromConfigAccountType);
@@ -58,7 +56,6 @@ public class BalanceUpdateEventHandler implements EventHandler<TransferRingBuffe
         } finally {
             inFlightRequestsSemaphore.release(); // Release the permit
             event.clear(); // 清理 Event 以便重用
-            MDC.remove("eventKeys");
         }
     }
 

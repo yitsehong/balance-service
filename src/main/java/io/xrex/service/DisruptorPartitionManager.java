@@ -60,8 +60,9 @@ public class DisruptorPartitionManager {
                     TransferRingBufferEvent::new, 1024, threadFactory);
 
             // 2. Create coin-specific topic and handler
-            String coinSpecificTopic = topic + "-" + coinSymbol.toLowerCase();
-            BalanceUpdateEventHandler handler = handlerFactory.create(coinSpecificTopic);
+            // TODO
+//            String coinSpecificTopic = topic + "-" + coinSymbol.toLowerCase();
+            BalanceUpdateEventHandler handler = handlerFactory.create(topic);
             disruptor.handleEventsWith(handler);
 
             RingBuffer<TransferRingBufferEvent> ringBuffer = disruptor.start();

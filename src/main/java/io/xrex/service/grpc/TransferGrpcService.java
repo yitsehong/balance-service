@@ -29,6 +29,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
 
 import static io.xrex.util.XrexConstant.ISO_DATE_FORMATTER;
@@ -41,6 +43,8 @@ import static io.xrex.util.XrexConstant.ISO_DATE_FORMATTER;
 @Slf4j
 @GrpcService
 public class TransferGrpcService extends TransferServiceGrpc.TransferServiceImplBase {
+
+    private static final ExecutorService virtualThreadExecutor = Executors.newVirtualThreadPerTaskExecutor();
 
     private final BatchTransferProcessorService batchTransferProcessorService;
     private final CustomRaftClient raftClient;
@@ -113,37 +117,39 @@ public class TransferGrpcService extends TransferServiceGrpc.TransferServiceImpl
 
         CompletableFuture<Void> allFutures = CompletableFuture.allOf(processingFutures.toArray(new CompletableFuture[0]));
 
-        allFutures.thenRun(() -> {
-            // This block runs only if ALL futures completed successfully.
-            List<String> transactionIds = processingFutures.stream()
-                    .map(CompletableFuture::join).toList();
+        allFutures.whenCompleteAsync((voidResult, throwable) -> {
+            if (throwable != null) {
+                // This block now runs on a virtual thread.
+                log.error("Error processing batch transfer via Raft", throwable);
+                IdempotencyRecordDto failRecord = new IdempotencyRecordDto("FAILED", throwable.getMessage());
+                idempotencyService.saveRecord(requestId, failRecord); // Blocking I/O
+                Status status = Status.INTERNAL.withDescription("Internal error: " + throwable.getMessage());
+                responseObserver.onError(status.asRuntimeException());
+            } else {
+                // This block also runs on a virtual thread.
+                List<String> processedEventKeys = processingFutures.stream()
+                        .map(CompletableFuture::join)
+                        .toList();
 
-            TransferResponse response = TransferResponse.newBuilder()
-                    .setSuccess(true)
-                    .addAllTransactionIds(transactionIds)
-                    .setMessage("All transfers submitted to Raft cluster for processing.")
-                    .build();
+                TransferResponse response = TransferResponse.newBuilder()
+                        .setSuccess(true)
+                        .addAllTransactionIds(processedEventKeys)
+                        .setMessage("All transfers submitted to Raft cluster for processing.")
+                        .build();
 
-            try {
-                String responseJson = JsonFormat.printer().print(response);
-                IdempotencyRecordDto successRecord = new IdempotencyRecordDto("SUCCESS", responseJson);
-                idempotencyService.saveRecord(requestId, successRecord);
+                try {
+                    String responseJson = JsonFormat.printer().print(response);
+                    IdempotencyRecordDto successRecord = new IdempotencyRecordDto("SUCCESS", responseJson);
+                    idempotencyService.saveRecord(requestId, successRecord); // Blocking I/O
+                } catch (Exception e) {
+                    log.error("Failed to serialize response for idempotency record, requestId: {}", requestId, e);
+                    // Continue to send response to client even if caching fails
+                }
+
                 responseObserver.onNext(response);
-            } catch (Exception e) {
-                log.error("Failed to serialize response for idempotency record, requestId: {}", requestId, e);
-                // Continue to send response to client even if caching fails
-                responseObserver.onError(e);
+                responseObserver.onCompleted();
             }
-            responseObserver.onCompleted();
-        }).exceptionally(throwable -> {
-            // This block runs if ANY of the futures completed exceptionally.
-            log.error("Error processing batch transfer via Raft", throwable);
-            IdempotencyRecordDto failRecord = new IdempotencyRecordDto("FAILED", throwable.getMessage());
-            idempotencyService.saveRecord(requestId, failRecord);
-            Status status = Status.INTERNAL.withDescription("Internal error: " + throwable.getMessage());
-            responseObserver.onError(status.asRuntimeException());
-            return null; // Required for exceptionally
-        });
+        }, virtualThreadExecutor);
     }
 
     /**

@@ -6,7 +6,6 @@ import io.xrex.model.entity.TransactionEntity;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
-import org.slf4j.MDC;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.support.Acknowledgment;
 import org.springframework.stereotype.Service;
@@ -40,7 +39,9 @@ public class AccountPersistenceService {
      * @param records A list of ConsumerRecord objects containing TransactionEventDto payloads.
      * @param acknowledgment The Acknowledgment object to confirm that the batch has been processed.
      */
-    @KafkaListener(topicPattern = "${app.kafka.balance-transfer.topic}.*", groupId = "${app.kafka.balance-transfer.group}", containerFactory = "consumerFactory")
+    // TODO
+    // @KafkaListener(topicPattern = "${app.kafka.balance-transfer.topic}.*", groupId = "${app.kafka.balance-transfer.group}", containerFactory = "consumerFactory")
+    @KafkaListener(topicPattern = "${app.kafka.balance-transfer.topic}", groupId = "${app.kafka.balance-transfer.group}", containerFactory = "consumerFactory")
     public void consume(List<ConsumerRecord<String, TransactionEventDto>> records, Acknowledgment acknowledgment) {
         if (records.isEmpty()) {
             acknowledgment.acknowledge();
@@ -49,20 +50,19 @@ public class AccountPersistenceService {
 
         try {
             long start = System.currentTimeMillis();
-            String topic = records.get(0).topic();
-            // Assuming topic format is "base-topic-coin" e.g., "balance-transfer-btc"
-            String coin = "unknown";
-            int lastDashIndex = topic.lastIndexOf('-');
-            if (lastDashIndex != -1 && lastDashIndex < topic.length() - 1) {
-                coin = topic.substring(lastDashIndex + 1).toLowerCase();
-            }
+//            String topic = records.get(0).topic();
+//            // Assuming topic format is "base-topic-coin" e.g., "balance-transfer-btc"
+//            String coin = "unknown";
+//            int lastDashIndex = topic.lastIndexOf('-');
+//            if (lastDashIndex != -1 && lastDashIndex < topic.length() - 1) {
+//                coin = topic.substring(lastDashIndex + 1).toLowerCase();
+//            }
 
             List<TransactionEventDto> events = records.stream().map(ConsumerRecord::value).toList();
-            MDC.put("eventKeys", events.get(0).getEventKey());
             ledgerBookService.produceLedgerBook(events);
 
             // Step 1: Aggregate balance changes for each account
-            Map<AccountIdDto, BigDecimal> balanceAdjustments = events.stream()
+            Map<AccountIdDto, BigDecimal> balanceAdjustments = events.parallelStream()
                     .flatMap(event -> Stream.of(
                             Map.entry(new AccountIdDto(event.getFrom().getChainupId(), event.getFrom().getAssetType(), event.getFrom().getCoinSymbol(), event.getFrom().getAccountTag()), event.getFrom().getAmount()),
                             Map.entry(new AccountIdDto(event.getTo().getChainupId(), event.getTo().getAssetType(), event.getTo().getCoinSymbol(), event.getTo().getAccountTag()), event.getTo().getAmount())
@@ -72,7 +72,8 @@ public class AccountPersistenceService {
 
             // Each mini-batch is processed in its own transaction via batchTransfer
             transferService.batchTransfer(balanceAdjustments, transactions);
-            log.info("Successfully persisted of event size={}, coin={}, balanceAdjustments size={}, time={}ms", events.size(), coin, balanceAdjustments.size(), System.currentTimeMillis() - start);
+//            log.info("Successfully persisted of event size={}, coin={}, balanceAdjustments size={}, time={}ms", events.size(), coin, balanceAdjustments.size(), System.currentTimeMillis() - start);
+            log.info("Successfully persisted of event size={}, balanceAdjustments size={}, time={}ms", events.size(), balanceAdjustments.size(), System.currentTimeMillis() - start);
         } catch (Exception e) {
             // Log the error for the specific mini-batch and continue with the next
             // This enhances resilience, preventing one bad batch from stopping the entire poll.
@@ -82,7 +83,6 @@ public class AccountPersistenceService {
             // Acknowledge the entire polled batch, even if some mini-batches failed.
             // The failed ones are logged for later handling.
             acknowledgment.acknowledge();
-            MDC.remove("eventKeys");
         }
     }
 

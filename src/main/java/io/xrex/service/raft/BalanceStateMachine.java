@@ -24,7 +24,6 @@ import org.rocksdb.Checkpoint;
 import org.rocksdb.Options;
 import org.rocksdb.RocksDB;
 import org.rocksdb.RocksDBException;
-import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.kafka.core.KafkaTemplate;
 
@@ -33,10 +32,7 @@ import java.io.IOException;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Semaphore;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 
 /**
  * A Raft-managed state machine for processing balance transfers.
@@ -67,6 +63,7 @@ public class BalanceStateMachine extends BaseStateMachine {
                 CompletableFuture<String> future = new CompletableFuture<>();
                 event.setFuture(future);
             };
+    private static final ExecutorService VIRTUAL_THREAD_EXECUTOR = Executors.newVirtualThreadPerTaskExecutor();
     private final Map<String, Long> clientSequenceIds = new ConcurrentHashMap<>();
     private final KafkaTemplate<String, TransactionEventDto> kafkaTemplate;
     private final ConfigService configService;
@@ -98,7 +95,7 @@ public class BalanceStateMachine extends BaseStateMachine {
      * It sets up the RocksDB instance, initializes the Disruptor partition manager, and prepares the
      * semaphore for controlling in-flight requests.
      *
-     * @param server The Raft server instance.
+     * @param server  The Raft server instance.
      * @param groupId The ID of the Raft group.
      * @param storage The storage for the Raft log and state machine.
      * @throws IOException if an I/O error occurs.
@@ -136,51 +133,46 @@ public class BalanceStateMachine extends BaseStateMachine {
      */
     @Override
     public CompletableFuture<Message> applyTransaction(TransactionContext trx) {
-        try {
-            final byte[] logData = trx.getStateMachineLogEntry().getLogData().toByteArray();
-            final BatchCommand command = JSON.parseObject(logData, BatchCommand.class);
+        final byte[] logData = trx.getStateMachineLogEntry().getLogData().toByteArray();
+        final BatchCommand command = JSON.parseObject(logData, BatchCommand.class);
 
-            final String clientId = command.getClientId();
-            final long sequenceId = command.getSequenceId();
+        final String clientId = command.getClientId();
+        final long sequenceId = command.getSequenceId();
 
-            if (isDuplicate(clientId, sequenceId)) {
-                log.error("[BalanceStateMachine] Duplicate request detected. ClientId={}, SequenceId={}", clientId, sequenceId);
-                return CompletableFuture.completedFuture(Message.valueOf("Duplicate request"));
-            }
-            MDC.put("eventKeys", command.getEvents().get(0).getEventKey());
-
-            // 2. Modify the publishing logic: iterate through the DTO list and publish an event for each DTO
-            for (TransactionEventDto eventDto : command.getEvents()) {
-                try {
-                    // Acquire a permit before publishing. This will block if the system is overloaded.
-                    if (!inFlightRequestsSemaphore.tryAcquire(1, 10, TimeUnit.SECONDS)) {
-                        log.error("Timeout acquiring semaphore permit. System is overloaded. Rejecting transaction for eventKey: {}", eventDto.getEventKey());
-                        // We can't easily fail just one part of a batch. Failing the whole batch.
-                        return CompletableFuture.completedFuture(Message.valueOf("System overloaded. Please try again later."));
-                    }
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    log.error("Interrupted while waiting for semaphore permit. Rejecting transaction.", e);
-                    return CompletableFuture.completedFuture(Message.valueOf("Transaction interrupted."));
-                }
-
-                String coinSymbol = eventDto.getFrom().getCoinSymbol();
-                RingBuffer<TransferRingBufferEvent> ringBuffer = disruptorPartitionManager.getRingBuffer(coinSymbol);
-                if (ringBuffer != null) {
-                    ringBuffer.publishEvent(TRANSACTION_EVENT_TRANSLATOR, eventDto);
-                } else {
-                    // If there's no ring buffer, we must release the permit we just acquired.
-                    inFlightRequestsSemaphore.release();
-                    log.error("No ring buffer found for coin symbol: {}. Releasing permit.", coinSymbol);
-                    // Handle error: maybe push to a default queue or reject the transaction
-                }
-            }
-            clientSequenceIds.put(clientId, sequenceId);
-            log.info("[BalanceStateMachine] {} events applyTransaction END. Returning OK to Raft framework.",  command.getEvents().size());
-            return CompletableFuture.completedFuture(Message.valueOf("OK"));
-        } finally {
-            MDC.remove("eventKeys");
+        if (isDuplicate(clientId, sequenceId)) {
+            log.error("[BalanceStateMachine] Duplicate request detected. ClientId={}, SequenceId={}", clientId, sequenceId);
+            return CompletableFuture.completedFuture(Message.valueOf("Duplicate request"));
         }
+
+        // 2. Modify the publishing logic: iterate through the DTO list and publish an event for each DTO
+        for (TransactionEventDto eventDto : command.getEvents()) {
+            try {
+                // Acquire a permit before publishing. This will block if the system is overloaded.
+                if (!inFlightRequestsSemaphore.tryAcquire(1, 10, TimeUnit.SECONDS)) {
+                    log.error("Timeout acquiring semaphore permit. System is overloaded. Rejecting transaction for eventKey: {}", eventDto.getEventKey());
+                    // We can't easily fail just one part of a batch. Failing the whole batch.
+                    return CompletableFuture.completedFuture(Message.valueOf("System overloaded. Please try again later."));
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                log.error("Interrupted while waiting for semaphore permit. Rejecting transaction.", e);
+                return CompletableFuture.completedFuture(Message.valueOf("Transaction interrupted."));
+            }
+
+            String coinSymbol = eventDto.getFrom().getCoinSymbol();
+            RingBuffer<TransferRingBufferEvent> ringBuffer = disruptorPartitionManager.getRingBuffer(coinSymbol);
+            if (ringBuffer != null) {
+                ringBuffer.publishEvent(TRANSACTION_EVENT_TRANSLATOR, eventDto);
+            } else {
+                // If there's no ring buffer, we must release the permit we just acquired.
+                inFlightRequestsSemaphore.release();
+                log.error("No ring buffer found for coin symbol: {}. Releasing permit.", coinSymbol);
+                // Handle error: maybe push to a default queue or reject the transaction
+            }
+        }
+        clientSequenceIds.put(clientId, sequenceId);
+        log.debug("[BalanceStateMachine] {} events applyTransaction END. Returning OK to Raft framework.", command.getEvents().size());
+        return CompletableFuture.completedFuture(Message.valueOf("OK"));
     }
 
     /**
@@ -236,8 +228,10 @@ public class BalanceStateMachine extends BaseStateMachine {
      * @return A CompletableFuture with the balance.
      */
     private CompletableFuture<Message> queryEventual(AccountIdDto accountId) {
-        BigDecimal balance = rocksDBService.queryEventual(accountId);
-        return CompletableFuture.completedFuture(Message.valueOf(balance.toPlainString()));
+        return CompletableFuture.supplyAsync(() -> {
+            BigDecimal balance = rocksDBService.queryEventual(accountId);
+            return Message.valueOf(balance.toPlainString());
+        }, VIRTUAL_THREAD_EXECUTOR);
     }
 
     /**
@@ -294,7 +288,7 @@ public class BalanceStateMachine extends BaseStateMachine {
     /**
      * Checks if a request is a duplicate based on the client ID and sequence ID.
      *
-     * @param clientId The ID of the client that sent the request.
+     * @param clientId   The ID of the client that sent the request.
      * @param sequenceId The sequence ID of the request.
      * @return true if the request is a duplicate, false otherwise.
      */

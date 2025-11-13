@@ -16,7 +16,6 @@ import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
 import org.rocksdb.*;
-import org.slf4j.MDC;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -100,94 +99,89 @@ public class RocksDBService {
      * It checks for sufficient funds, calculates new balances, and then writes the updates
      * in a single batch operation. It also updates the L1 cache upon a successful write.
      *
-     * @param event The event from the Disruptor ring buffer containing transaction details.
+     * @param event         The event from the Disruptor ring buffer containing transaction details.
      * @param fromAccountId The account ID of the sender.
-     * @param toAccountId The account ID of the receiver.
+     * @param toAccountId   The account ID of the receiver.
      * @return A TransactionEventDto containing the detailed ledger entries for the transaction.
      * @throws InsufficientFundsException if the sender's balance is too low.
      */
     public TransactionEventDto updateBalanceOnRocksDB(TransferRingBufferEvent event,
                                                       AccountIdDto fromAccountId, AccountIdDto toAccountId) {
-        MDC.put("eventKeys", event.getEventKey());
-        try {
-            String eventKey = event.getEventKey();
-            BigDecimal amount = event.getAmount();
-            String scene = event.getScene();
-            String refType = event.getRefType();
-            Long refId = event.getRefId();
+        String eventKey = event.getEventKey();
+        BigDecimal amount = event.getAmount();
+        String scene = event.getScene();
+        String refType = event.getRefType();
+        Long refId = event.getRefId();
 
-            // Get balances
-            BalanceDto fromAccountBalance = findById(fromAccountId).orElse(new BalanceDto(fromAccountId, BigDecimal.ZERO));
-            BalanceDto toAccountBalance = findById(toAccountId).orElse(new BalanceDto(toAccountId, BigDecimal.ZERO));
+        // Get balances
+        BalanceDto fromAccountBalance = findById(fromAccountId).orElse(new BalanceDto(fromAccountId, BigDecimal.ZERO));
+        BalanceDto toAccountBalance = findById(toAccountId).orElse(new BalanceDto(toAccountId, BigDecimal.ZERO));
 
-            // Check for sufficient funds
-            boolean ignoreCheck = fromAccountId.getChainupId() == 1; // Assuming chainupId 1 is a system/internal account
-            if (!ignoreCheck && fromAccountBalance.getAmount().compareTo(amount) < 0) {
-                log.error("Transaction [{}]: Insufficient funds for user {}. Required: {}, Available: {}",
-                        eventKey, fromAccountId.getChainupId(), amount, fromAccountBalance.getAmount());
-                throw new InsufficientFundsException(fromAccountId.getChainupId() + " has insufficient funds, amount=" + amount + ", now=" + fromAccountBalance.getAmount());
-            }
-
-            // Calculate new balances
-            BigDecimal fromBeforeBalance = fromAccountBalance.getAmount();
-            BigDecimal fromAfterBalance = fromBeforeBalance.subtract(amount);
-            BigDecimal toBeforeBalance = toAccountBalance.getAmount();
-            BigDecimal toAfterBalance = toBeforeBalance.add(amount);
-
-            // --- Atomic Update using WriteBatch ---
-            try (final WriteOptions writeOpts = new WriteOptions();
-                 final WriteBatch batch = new WriteBatch()) {
-
-                // Update balance objects for serialization
-                fromAccountBalance.setAmount(fromAfterBalance);
-                toAccountBalance.setAmount(toAfterBalance);
-
-                // Add updates to the batch
-                batch.put(defaultCfHandle, JSON.toJSONBytes(fromAccountId), JSON.toJSONBytes(fromAccountBalance));
-                batch.put(defaultCfHandle, JSON.toJSONBytes(toAccountId), JSON.toJSONBytes(toAccountBalance));
-                // Execute the atomic write
-                db.write(writeOpts, batch);
-
-                // Update L1 cache AFTER successful DB write
-                l1Cache.put(fromAccountId, fromAfterBalance);
-                l1Cache.put(toAccountId, toAfterBalance);
-
-            } catch (RocksDBException e) {
-                log.error("Error during atomic balance update for eventKey: {}", eventKey, e);
-                // Re-throw as a runtime exception to be caught by the EventHandler
-                throw new RuntimeException("Failed to atomically update balances in RocksDB", e);
-            }
-            // --- End of Atomic Update ---
-
-            // Create ledger book entries
-            LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
-            LedgerBookEntity from = LedgerBookEntity.builder()
-                    .idempotencyKey(eventKey)
-                    .chainupId(fromAccountId.getChainupId())
-                    .assetType(fromAccountId.getAssetType())
-                    .amount(amount.negate())
-                    .beforeBalance(fromBeforeBalance).afterBalance(fromAfterBalance)
-                    .coinSymbol(fromAccountId.getCoinSymbol())
-                    .accountTag(fromAccountId.getAccountTag())
-                    .scene(scene).refType(refType).refId(refId)
-                    .createdTime(now).updatedTime(now).build();
-
-            LedgerBookEntity to = LedgerBookEntity.builder()
-                    .idempotencyKey(eventKey)
-                    .chainupId(toAccountId.getChainupId())
-                    .assetType(toAccountId.getAssetType())
-                    .amount(amount)
-                    .beforeBalance(toBeforeBalance).afterBalance(toAfterBalance)
-                    .coinSymbol(toAccountId.getCoinSymbol())
-                    .accountTag(toAccountId.getAccountTag())
-                    .scene(scene).refType(refType).refId(refId)
-                    .createdTime(now).updatedTime(now).build();
-
-            return TransactionEventDto.builder().eventKey(eventKey)
-                    .from(from).to(to).meta(event.getMeta()).opUid(event.getOpUid()).opIp(event.getOpIp()).build();
-        } finally {
-            MDC.remove("eventKeys");
+        // Check for sufficient funds
+        boolean ignoreCheck = fromAccountId.getChainupId() == 1; // Assuming chainupId 1 is a system/internal account
+        if (!ignoreCheck && fromAccountBalance.getAmount().compareTo(amount) < 0) {
+            log.error("Transaction [{}]: Insufficient funds for user {}. Required: {}, Available: {}",
+                    eventKey, fromAccountId.getChainupId(), amount, fromAccountBalance.getAmount());
+            throw new InsufficientFundsException(fromAccountId.getChainupId() + " has insufficient funds, amount=" + amount + ", now=" + fromAccountBalance.getAmount());
         }
+
+        // Calculate new balances
+        BigDecimal fromBeforeBalance = fromAccountBalance.getAmount();
+        BigDecimal fromAfterBalance = fromBeforeBalance.subtract(amount);
+        BigDecimal toBeforeBalance = toAccountBalance.getAmount();
+        BigDecimal toAfterBalance = toBeforeBalance.add(amount);
+
+        // --- Atomic Update using WriteBatch ---
+        try (final WriteOptions writeOpts = new WriteOptions();
+             final WriteBatch batch = new WriteBatch()) {
+
+            // Update balance objects for serialization
+            fromAccountBalance.setAmount(fromAfterBalance);
+            toAccountBalance.setAmount(toAfterBalance);
+
+            // Add updates to the batch
+            batch.put(defaultCfHandle, JSON.toJSONBytes(fromAccountId), JSON.toJSONBytes(fromAccountBalance));
+            batch.put(defaultCfHandle, JSON.toJSONBytes(toAccountId), JSON.toJSONBytes(toAccountBalance));
+            // Execute the atomic write
+            db.write(writeOpts, batch);
+
+            // Update L1 cache AFTER successful DB write
+            l1Cache.put(fromAccountId, fromAfterBalance);
+            l1Cache.put(toAccountId, toAfterBalance);
+
+        } catch (RocksDBException e) {
+            log.error("Error during atomic balance update for eventKey: {}", eventKey, e);
+            // Re-throw as a runtime exception to be caught by the EventHandler
+            throw new RuntimeException("Failed to atomically update balances in RocksDB", e);
+        }
+        // --- End of Atomic Update ---
+
+        // Create ledger book entries
+        LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+        LedgerBookEntity from = LedgerBookEntity.builder()
+                .idempotencyKey(eventKey)
+                .chainupId(fromAccountId.getChainupId())
+                .assetType(fromAccountId.getAssetType())
+                .amount(amount.negate())
+                .beforeBalance(fromBeforeBalance).afterBalance(fromAfterBalance)
+                .coinSymbol(fromAccountId.getCoinSymbol())
+                .accountTag(fromAccountId.getAccountTag())
+                .scene(scene).refType(refType).refId(refId)
+                .createdTime(now).updatedTime(now).build();
+
+        LedgerBookEntity to = LedgerBookEntity.builder()
+                .idempotencyKey(eventKey)
+                .chainupId(toAccountId.getChainupId())
+                .assetType(toAccountId.getAssetType())
+                .amount(amount)
+                .beforeBalance(toBeforeBalance).afterBalance(toAfterBalance)
+                .coinSymbol(toAccountId.getCoinSymbol())
+                .accountTag(toAccountId.getAccountTag())
+                .scene(scene).refType(refType).refId(refId)
+                .createdTime(now).updatedTime(now).build();
+
+        return TransactionEventDto.builder().eventKey(eventKey)
+                .from(from).to(to).meta(event.getMeta()).opUid(event.getOpUid()).opIp(event.getOpIp()).build();
     }
 
     /**
@@ -239,11 +233,6 @@ public class RocksDBService {
                         log.error("Error processing page {}: {}", currentPage, e.getMessage(), e);
                     } finally {
                         latch.countDown();
-                        int processed = processedCount.get();
-                        if (processed % 10000 == 0 || currentPage % 10 == 0) {
-                            log.info("Progress: processed {} accounts from {} pages",
-                                    processed, currentPage + 1);
-                        }
                     }
                 });
             }
@@ -262,8 +251,9 @@ public class RocksDBService {
 
     /**
      * Processes a single page of account data from the database and saves it to RocksDB.
-     * @param pageNumber The page number to process.
-     * @param pageSize The size of the page.
+     *
+     * @param pageNumber     The page number to process.
+     * @param pageSize       The size of the page.
      * @param processedCount An atomic counter to track the number of processed accounts.
      */
     private void processPage(int pageNumber, int pageSize, AtomicInteger processedCount) {
@@ -290,7 +280,7 @@ public class RocksDBService {
         }
 
         processedCount.addAndGet(pageProcessed);
-        log.debug("Completed page {} with {} accounts", pageNumber, pageProcessed);
+        log.info("Completed page {} with {} accounts", pageNumber, pageProcessed);
     }
 
     private Optional<BalanceDto> findById(AccountIdDto accountId) {
@@ -305,6 +295,7 @@ public class RocksDBService {
 
     /**
      * Retrieves a value from the 'idempotency' column family.
+     *
      * @param key The key to look up.
      * @return The value as a byte array, or null if not found or an error occurs.
      */
@@ -314,7 +305,8 @@ public class RocksDBService {
 
     /**
      * Saves a key-value pair to the 'idempotency' column family.
-     * @param key The key.
+     *
+     * @param key   The key.
      * @param value The value.
      */
     public void saveToIdempotency(byte[] key, byte[] value) {
