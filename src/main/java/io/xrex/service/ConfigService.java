@@ -2,10 +2,10 @@ package io.xrex.service;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
-import io.xrex.model.entity.ConfigAccountTypeEntity;
-import io.xrex.model.entity.ConfigCoinSymbolEntity;
-import io.xrex.repository.ConfigAccountTypeRepository;
-import io.xrex.repository.ConfigCoinSymbolRepository;
+import io.xrex.persistence.entity.ConfigAccountTypeEntity;
+import io.xrex.persistence.entity.ConfigCoinSymbolEntity;
+import io.xrex.persistence.repository.ConfigAccountTypeRepository;
+import io.xrex.persistence.repository.ConfigCoinSymbolRepository;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;

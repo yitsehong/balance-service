@@ -1,4 +1,4 @@
-package io.xrex.model.dto.event;
+package io.xrex.dto.event;
 
 import lombok.Data;
 

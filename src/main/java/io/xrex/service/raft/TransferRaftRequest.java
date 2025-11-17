@@ -1,6 +1,6 @@
 package io.xrex.service.raft;
 
-import io.xrex.model.dto.event.TransactionEventDto;
+import io.xrex.dto.event.TransactionEventDto;
 import lombok.Getter;
 import org.apache.ratis.protocol.RaftClientReply;
 

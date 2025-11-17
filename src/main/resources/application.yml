@@ -68,7 +68,6 @@ spring:
         jaas:
           config:
     consumer:
-      max-poll-records: 500
       auto-offset-reset: latest
 
 # ===================================================================
@@ -79,6 +78,11 @@ app:
     balance-transfer:
       topic: t.balance-service.balance-transfer
       group: g.balance-service.balance-transfer
+      max-poll-records: 500
+    handle-trade-event:
+      topic: t.balance-service.trade-event
+      group: g.balance-service.trade-event
+      max-poll-records: 500
 
 snowflake:
   worker-id: 1

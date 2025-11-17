@@ -1,6 +1,6 @@
 package io.xrex.event.handler;
 
-import io.xrex.model.dto.event.TransactionEventDto;
+import io.xrex.dto.event.TransactionEventDto;
 import io.xrex.service.ConfigService;
 import io.xrex.service.RocksDBService;
 import org.springframework.kafka.core.KafkaTemplate;

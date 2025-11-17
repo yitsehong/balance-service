@@ -1,6 +1,6 @@
 package io.xrex.config;
 
-import io.xrex.model.dto.event.TransactionEventDto;
+import io.xrex.dto.event.TransactionEventDto;
 import io.xrex.service.ConfigService;
 import io.xrex.service.RocksDBService;
 import io.xrex.service.raft.BalanceStateMachine;

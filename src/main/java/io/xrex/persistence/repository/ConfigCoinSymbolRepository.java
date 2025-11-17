@@ -1,6 +1,6 @@
-package io.xrex.repository;
+package io.xrex.persistence.repository;
 
-import io.xrex.model.entity.ConfigCoinSymbolEntity;
+import io.xrex.persistence.entity.ConfigCoinSymbolEntity;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 

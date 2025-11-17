@@ -1,6 +1,6 @@
-package io.xrex.repository;
+package io.xrex.persistence.repository;
 
-import io.xrex.model.entity.LedgerBookEntity;
+import io.xrex.persistence.entity.LedgerBookEntity;
 import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.BatchPreparedStatementSetter;
 import org.springframework.jdbc.core.JdbcTemplate;

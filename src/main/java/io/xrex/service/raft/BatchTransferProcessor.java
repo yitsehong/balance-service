@@ -4,7 +4,7 @@ import com.lmax.disruptor.EventHandler;
 import com.lmax.disruptor.RingBuffer;
 import com.lmax.disruptor.dsl.Disruptor;
 import com.lmax.disruptor.dsl.ProducerType;
-import io.xrex.model.dto.event.TransactionEventDto;
+import io.xrex.dto.event.TransactionEventDto;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.ratis.protocol.RaftClientReply;
 

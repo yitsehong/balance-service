@@ -1,6 +1,6 @@
 package io.xrex.config;
 
-import io.xrex.model.dto.event.TransactionEventDto;
+import io.xrex.dto.event.TransactionEventDto;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.kafka.clients.CommonClientConfigs;
 import org.apache.kafka.clients.producer.ProducerConfig;

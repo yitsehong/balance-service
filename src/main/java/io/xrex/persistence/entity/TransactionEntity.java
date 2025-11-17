@@ -1,4 +1,4 @@
-package io.xrex.model.entity;
+package io.xrex.persistence.entity;
 
 import io.xrex.util.MD5Util;
 import jakarta.persistence.Entity;

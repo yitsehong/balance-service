@@ -3,15 +3,15 @@ package io.xrex.service;
 import com.alibaba.fastjson2.JSON;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
-import io.xrex.exception.InsufficientFundsException;
-import io.xrex.model.dto.AccountIdDto;
-import io.xrex.model.dto.BalanceDto;
-import io.xrex.model.dto.event.TransactionEventDto;
-import io.xrex.model.dto.event.TransferRingBufferEvent;
-import io.xrex.model.entity.AccountEntity;
-import io.xrex.model.entity.ConfigAccountTypeEntity;
-import io.xrex.model.entity.LedgerBookEntity;
-import io.xrex.repository.AccountRepository;
+import io.xrex.controller.exception.InsufficientFundsException;
+import io.xrex.dto.AccountIdDto;
+import io.xrex.dto.BalanceDto;
+import io.xrex.dto.event.TransactionEventDto;
+import io.xrex.dto.event.TransferRingBufferEvent;
+import io.xrex.persistence.entity.AccountEntity;
+import io.xrex.persistence.entity.ConfigAccountTypeEntity;
+import io.xrex.persistence.entity.LedgerBookEntity;
+import io.xrex.persistence.repository.AccountRepository;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
@@ -57,7 +57,6 @@ public class RocksDBService {
     private final List<ColumnFamilyHandle> cfHandles = new ArrayList<>();
     private ColumnFamilyHandle defaultCfHandle;
     private ColumnFamilyHandle idempotencyCfHandle;
-
 
     public RocksDBService(ConfigService configService, AccountRepository accountRepository) {
         this.configService = configService;

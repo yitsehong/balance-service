@@ -1,7 +1,7 @@
 package io.xrex.service;
 
 import com.alibaba.fastjson2.JSON;
-import io.xrex.model.dto.IdempotencyRecordDto;
+import io.xrex.dto.IdempotencyRecordDto;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 

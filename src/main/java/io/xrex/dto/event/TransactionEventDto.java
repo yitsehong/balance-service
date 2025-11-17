@@ -1,6 +1,8 @@
-package io.xrex.model.dto.event;
+package io.xrex.dto.event;
 
-import io.xrex.model.entity.LedgerBookEntity;
+import com.fasterxml.jackson.databind.PropertyNamingStrategies;
+import com.fasterxml.jackson.databind.annotation.JsonNaming;
+import io.xrex.persistence.entity.LedgerBookEntity;
 import lombok.*;
 
 @Getter
@@ -9,6 +11,7 @@ import lombok.*;
 @AllArgsConstructor
 @NoArgsConstructor
 @ToString
+@JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
 public class TransactionEventDto {
 
     private String transactionId;

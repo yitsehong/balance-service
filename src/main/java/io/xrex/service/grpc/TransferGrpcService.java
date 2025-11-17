@@ -1,18 +1,19 @@
 package io.xrex.service.grpc;
 
-import com.google.protobuf.util.JsonFormat;
 import com.google.common.base.Strings;
+import com.google.protobuf.util.JsonFormat;
 import io.grpc.Status;
 import io.grpc.stub.StreamObserver;
+import io.xrex.enums.ErrorCodes;
 import io.xrex.enums.ReadConsistency;
 import io.xrex.grpc.*;
-import io.xrex.model.dto.AccountIdDto;
-import io.xrex.model.dto.IdempotencyRecordDto;
-import io.xrex.model.dto.event.TransactionEventDto;
-import io.xrex.model.entity.AccountEntity;
-import io.xrex.model.entity.ConfigAccountTypeEntity;
-import io.xrex.model.entity.LedgerBookEntity;
-import io.xrex.repository.AccountRepository;
+import io.xrex.dto.AccountIdDto;
+import io.xrex.dto.IdempotencyRecordDto;
+import io.xrex.dto.event.TransactionEventDto;
+import io.xrex.persistence.entity.AccountEntity;
+import io.xrex.persistence.entity.ConfigAccountTypeEntity;
+import io.xrex.persistence.entity.LedgerBookEntity;
+import io.xrex.persistence.repository.AccountRepository;
 import io.xrex.service.ConfigService;
 import io.xrex.service.IdempotencyService;
 import io.xrex.service.raft.BatchTransferProcessorService;
@@ -107,9 +108,8 @@ public class TransferGrpcService extends TransferServiceGrpc.TransferServiceImpl
         if (processingFutures.isEmpty()) {
             // No requests to process
             TransferResponse response = TransferResponse.newBuilder()
-                    .setSuccess(true)
-                    .setMessage("No transfers to process.")
-                    .build();
+                    .setCode(ErrorCodes.SUCCESS.getCode())
+                    .setDesc(ErrorCodes.SUCCESS.getDescription()).build();
             responseObserver.onNext(response);
             responseObserver.onCompleted();
             return;
@@ -130,8 +130,9 @@ public class TransferGrpcService extends TransferServiceGrpc.TransferServiceImpl
                 List<String> transactionIds = processingFutures.stream().map(CompletableFuture::join).toList();
 
                 TransferResponse response = TransferResponse.newBuilder()
-                        .setSuccess(true).addAllTransactionIds(transactionIds)
-                        .setMessage("All transfers submitted to Raft cluster for processing.").build();
+                        .setCode(ErrorCodes.SUCCESS.getCode())
+                        .setData(TransferData.newBuilder().addAllTransactionIds(transactionIds).build())
+                        .setDesc("All transfers submitted to Raft cluster for processing.").build();
 
                 try {
                     String responseJson = JsonFormat.printer().print(response);
@@ -162,8 +163,7 @@ public class TransferGrpcService extends TransferServiceGrpc.TransferServiceImpl
 
         CompletableFuture<RaftClientReply> raftFuture = processSingleTransfer(grpcRequest, transactionId);
         CompletableFuture<String> resultFuture = new CompletableFuture<>();
-
-        raftFuture.whenComplete((reply, ex) -> {
+        raftFuture.whenComplete((_, ex) -> {
             if (ex != null) {
                 log.error("Transfer failed for requestId: {}", requestId, ex);
                 resultFuture.completeExceptionally(ex);
@@ -171,7 +171,6 @@ public class TransferGrpcService extends TransferServiceGrpc.TransferServiceImpl
                 resultFuture.complete(transactionId);
             }
         });
-
         return resultFuture;
     }
 
@@ -192,12 +191,15 @@ public class TransferGrpcService extends TransferServiceGrpc.TransferServiceImpl
                         responseObserver.onError(ex);
                     } else {
                         String balance = reply.getMessage().getContent().toStringUtf8();
-                        LedgerResponse response = LedgerResponse.newBuilder()
-                                .setChainupId(accountId.getChainupId())
+                        Ledger ledger = Ledger.newBuilder().setChainupId(accountId.getChainupId())
                                 .setType(accountId.getAssetType())
                                 .setCurrency(accountId.getCoinSymbol())
                                 .setTag(accountId.getAccountTag())
                                 .setBalance(balance).build();
+                        LedgerResponse response = LedgerResponse.newBuilder()
+                                .setCode(ErrorCodes.SUCCESS.getCode())
+                                .setDesc(ErrorCodes.SUCCESS.getDescription())
+                                .setData(ledger).build();
                         responseObserver.onNext(response);
                         responseObserver.onCompleted();
                     }
@@ -215,7 +217,11 @@ public class TransferGrpcService extends TransferServiceGrpc.TransferServiceImpl
     public void getLedgerFromDB(LedgerRequest request, StreamObserver<LedgerResponse> responseObserver) {
         try {
             AccountEntity accountEntity = accountRepository.findByUidAndType(request.getChainupId(), request.getType());
-            LedgerResponse response = toLedgerResponse(accountEntity);
+            Ledger ledger = toLedger(accountEntity);
+            LedgerResponse response = LedgerResponse.newBuilder()
+                    .setCode(ErrorCodes.SUCCESS.getCode())
+                    .setDesc(ErrorCodes.SUCCESS.getDescription())
+                    .setData(ledger).build();
             responseObserver.onNext(response);
             responseObserver.onCompleted();
         } catch (Exception e) {
@@ -233,16 +239,17 @@ public class TransferGrpcService extends TransferServiceGrpc.TransferServiceImpl
     public void getBalanceFromDB(BalanceRequest request, StreamObserver<BalanceResponse> responseObserver) {
         try {
             List<AccountEntity> accounts = accountRepository.findByUid(request.getChainupId());
-            List<LedgerResponse> results = new ArrayList<>();
+            List<Ledger> ledgers = new ArrayList<>();
             for (AccountEntity account : accounts) {
-                results.add(toLedgerResponse(account));
+                ledgers.add(toLedger(account));
             }
 
-            Map<String, List<LedgerResponse>> result = results.stream().collect(Collectors.groupingBy(LedgerResponse::getCurrency));
-            BalanceResponse.Builder responseBuilder = BalanceResponse.newBuilder();
-            for (Map.Entry<String, List<LedgerResponse>> entry : result.entrySet()) {
-                LedgerListResponse ledgers = LedgerListResponse.newBuilder().addAllLedgers(entry.getValue()).build();
-                responseBuilder.putCoinLedgers(entry.getKey(), ledgers);
+            Map<String, List<Ledger>> result = ledgers.stream().collect(Collectors.groupingBy(Ledger::getCurrency));
+            BalanceResponse.Builder responseBuilder = BalanceResponse.newBuilder()
+                    .setCode(ErrorCodes.SUCCESS.getCode()).setDesc(ErrorCodes.SUCCESS.getDescription());
+            for (Map.Entry<String, List<Ledger>> entry : result.entrySet()) {
+                LedgerListResponse ledgerListResponse = LedgerListResponse.newBuilder().addAllLedgers(entry.getValue()).build();
+                responseBuilder.putData(entry.getKey(), ledgerListResponse);
             }
             responseObserver.onNext(responseBuilder.build());
             responseObserver.onCompleted();
@@ -305,12 +312,11 @@ public class TransferGrpcService extends TransferServiceGrpc.TransferServiceImpl
      * Converts an AccountEntity to a LedgerResponse.
      *
      * @param accountEntity The account entity to convert.
-     * @return A LedgerResponse.
+     * @return A Ledger.
      */
-    private LedgerResponse toLedgerResponse(AccountEntity accountEntity) {
+    private Ledger toLedger(AccountEntity accountEntity) {
         ConfigAccountTypeEntity configAccountType = configService.findByAssetType(accountEntity.getType());
-        return LedgerResponse.newBuilder()
-                .setId(accountEntity.getId())
+        return Ledger.newBuilder().setId(accountEntity.getId())
                 .setChainupId(accountEntity.getUid())
                 .setType(accountEntity.getType())
                 .setCurrency(configAccountType.getCoinSymbol())

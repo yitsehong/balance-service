@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.fasterxml.jackson.databind.annotation.JsonNaming;
 import io.xrex.enums.ErrorCodes;
 import io.xrex.util.MDCUtil;
+import io.xrex.util.XrexConstant;
 import lombok.Builder;
 import lombok.Data;
 import org.springframework.data.domain.Page;
@@ -24,7 +25,7 @@ public class RestApiResponse<T> implements Serializable {
     private String code;
     private String desc;
     private T data;
-    @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'")
+    @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = XrexConstant.ISO_DATE_FORMAT)
     private Date timestamp;
     @JsonInclude(JsonInclude.Include.NON_NULL)
     private Object extra;

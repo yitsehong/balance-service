@@ -1,7 +1,7 @@
-package io.xrex.repository;
+package io.xrex.persistence.repository;
 
-import io.xrex.model.dto.AccountIdDto;
-import io.xrex.model.entity.AccountEntity;
+import io.xrex.dto.AccountIdDto;
+import io.xrex.persistence.entity.AccountEntity;
 import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.BatchPreparedStatementSetter;
 import org.springframework.jdbc.core.JdbcTemplate;

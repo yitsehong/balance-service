@@ -1,6 +1,6 @@
-package io.xrex.repository;
+package io.xrex.persistence.repository;
 
-import io.xrex.model.entity.TransactionEntity;
+import io.xrex.persistence.entity.TransactionEntity;
 import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.BatchPreparedStatementSetter;
 import org.springframework.jdbc.core.JdbcTemplate;

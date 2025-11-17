@@ -1,13 +1,13 @@
 package io.xrex.service;
 
-import io.xrex.model.dto.AccountIdDto;
-import io.xrex.model.dto.event.TransactionEventDto;
-import io.xrex.model.entity.AccountEntity;
-import io.xrex.model.entity.ConfigAccountTypeEntity;
-import io.xrex.model.entity.LedgerBookEntity;
-import io.xrex.model.entity.TransactionEntity;
-import io.xrex.repository.AccountDao;
-import io.xrex.repository.TransactionDao;
+import io.xrex.dto.AccountIdDto;
+import io.xrex.dto.event.TransactionEventDto;
+import io.xrex.persistence.entity.AccountEntity;
+import io.xrex.persistence.entity.ConfigAccountTypeEntity;
+import io.xrex.persistence.entity.LedgerBookEntity;
+import io.xrex.persistence.entity.TransactionEntity;
+import io.xrex.persistence.repository.AccountDao;
+import io.xrex.persistence.repository.TransactionDao;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;

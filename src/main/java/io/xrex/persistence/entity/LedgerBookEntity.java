@@ -1,4 +1,4 @@
-package io.xrex.model.entity;
+package io.xrex.persistence.entity;
 
 import com.fasterxml.jackson.annotation.JsonFormat;
 import com.fasterxml.jackson.databind.annotation.JsonSerialize;

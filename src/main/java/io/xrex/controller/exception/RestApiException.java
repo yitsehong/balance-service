@@ -1,4 +1,4 @@
-package io.xrex.exception;
+package io.xrex.controller.exception;
 
 
 import io.xrex.controller.RestApiResponse;

@@ -1,10 +1,10 @@
 package io.xrex.event.handler;
 
 import com.lmax.disruptor.EventHandler;
-import io.xrex.model.dto.AccountIdDto;
-import io.xrex.model.dto.event.TransactionEventDto;
-import io.xrex.model.dto.event.TransferRingBufferEvent;
-import io.xrex.model.entity.ConfigAccountTypeEntity;
+import io.xrex.dto.AccountIdDto;
+import io.xrex.dto.event.TransactionEventDto;
+import io.xrex.dto.event.TransferRingBufferEvent;
+import io.xrex.persistence.entity.ConfigAccountTypeEntity;
 import io.xrex.service.ConfigService;
 import io.xrex.service.RocksDBService;
 import lombok.extern.slf4j.Slf4j;

@@ -1,6 +1,7 @@
 package io.xrex.config;
 
-import io.xrex.model.dto.event.TransactionEventDto;
+import io.xrex.dto.event.OrderChangeEventDto;
+import io.xrex.dto.event.TransactionEventDto;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.kafka.clients.CommonClientConfigs;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
@@ -24,7 +25,7 @@ public class KafkaConsumerConfig {
 
     @Value("${spring.kafka.bootstrap-servers}")
     private String bootstrapServers;
-    @Value("${spring.kafka.consumer.max-poll-records}")
+    @Value("${app.kafka.balance-transfer.max-poll-records}")
     private Integer maxPollRecords;
     @Value("${spring.kafka.properties.security.protocol}")
     private String securityProtocol;
@@ -34,13 +35,37 @@ public class KafkaConsumerConfig {
     private String saslJaasConfig;
 
     @Bean
-    public ConcurrentKafkaListenerContainerFactory<String, TransactionEventDto> consumerFactory() {
+    public ConcurrentKafkaListenerContainerFactory<String, TransactionEventDto> persistenceFactory() {
+        Map<String, Object> props = buildCommonProperties();
+        props.put(JsonDeserializer.VALUE_DEFAULT_TYPE, TransactionEventDto.class.getName());
+
+        ConcurrentKafkaListenerContainerFactory<String, TransactionEventDto> factory = new ConcurrentKafkaListenerContainerFactory<>();
+        factory.setConsumerFactory(new DefaultKafkaConsumerFactory<>(props));
+        factory.setBatchListener(true); // Enable batch listening
+        factory.getContainerProperties().setAckMode(ContainerProperties.AckMode.MANUAL);
+        factory.setCommonErrorHandler(new DefaultErrorHandler(new FixedBackOff(1000L, 3L)));
+        return factory;
+    }
+
+    @Bean
+    public ConcurrentKafkaListenerContainerFactory<String, OrderChangeEventDto> tradeEventFactory() {
+        Map<String, Object> props = buildCommonProperties();
+        props.put(JsonDeserializer.VALUE_DEFAULT_TYPE, OrderChangeEventDto.class.getName());
+
+        ConcurrentKafkaListenerContainerFactory<String, OrderChangeEventDto> factory = new ConcurrentKafkaListenerContainerFactory<>();
+        factory.setConsumerFactory(new DefaultKafkaConsumerFactory<>(props));
+        factory.setBatchListener(true); // Enable batch listening
+        factory.getContainerProperties().setAckMode(ContainerProperties.AckMode.MANUAL);
+        factory.setCommonErrorHandler(new DefaultErrorHandler(new FixedBackOff(1000L, 3L)));
+        return factory;
+    }
+
+    private Map<String, Object> buildCommonProperties() {
         Map<String, Object> props = new HashMap<>();
         props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
         props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
         props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, JsonDeserializer.class);
-        props.put(JsonDeserializer.TRUSTED_PACKAGES, "io.xrex.model.dto.event");
-        props.put(JsonDeserializer.VALUE_DEFAULT_TYPE, TransactionEventDto.class.getName());
+        props.put(JsonDeserializer.TRUSTED_PACKAGES, "io.xrex.dto.event");
         props.put(JsonDeserializer.USE_TYPE_INFO_HEADERS, true);
         props.put(JsonDeserializer.REMOVE_TYPE_INFO_HEADERS, false);
 
@@ -53,13 +78,6 @@ public class KafkaConsumerConfig {
             props.put(SaslConfigs.SASL_MECHANISM, saslMechanism);
             props.put(SaslConfigs.SASL_JAAS_CONFIG, saslJaasConfig);
         }
-
-        ConcurrentKafkaListenerContainerFactory<String, TransactionEventDto> factory = new ConcurrentKafkaListenerContainerFactory<>();
-        factory.setConsumerFactory(new DefaultKafkaConsumerFactory<>(props));
-        factory.setBatchListener(true); // Enable batch listening
-        factory.getContainerProperties().setAckMode(ContainerProperties.AckMode.MANUAL);
-        factory.setCommonErrorHandler(new DefaultErrorHandler(new FixedBackOff(1000L, 3L)));
-        return factory;
+        return props;
     }
-
 }

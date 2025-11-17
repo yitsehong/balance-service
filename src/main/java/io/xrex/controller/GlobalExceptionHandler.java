@@ -2,7 +2,7 @@ package io.xrex.controller;
 
 
 import io.xrex.enums.ErrorCodes;
-import io.xrex.exception.RestApiException;
+import io.xrex.controller.exception.RestApiException;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.http.HttpHeaders;

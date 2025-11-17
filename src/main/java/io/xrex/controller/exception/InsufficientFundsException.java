@@ -1,4 +1,4 @@
-package io.xrex.exception;
+package io.xrex.controller.exception;
 
 public class InsufficientFundsException extends RuntimeException {
     public InsufficientFundsException(String message) {

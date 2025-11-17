@@ -1,4 +1,4 @@
-package io.xrex.model.dto.raft;
+package io.xrex.dto.raft;
 
 import lombok.Data;
 

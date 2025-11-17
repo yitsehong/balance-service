@@ -97,8 +97,8 @@ public class TestController {
                     }
                 };
                 TransferRequest request = TransferRequest.newBuilder()
-                        .setFromUid(value.getChainupId()).setFromType(value.getType()).setToUid(1).setToType(value.getType())
-                        .setAmount(value.getBalance()).setScene("TRANSFER_COMMON").setMeta("0")
+                        .setFromUid(value.getData().getChainupId()).setFromType(value.getData().getType()).setToUid(1).setToType(value.getData().getType())
+                        .setAmount(value.getData().getBalance()).setScene("TRANSFER_COMMON").setMeta("0")
                         .setRefType("test").setRefId(ThreadLocalRandom.current().nextInt(1, 3)).setOpUid(1).setOpIp("127.0.0.1")
                         .build();
                 TransferListRequest listRequest = TransferListRequest.newBuilder().addAllRequests(List.of(request)).setRequestId(UUIDv7Generator.generate()).build();

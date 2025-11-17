@@ -1,4 +1,4 @@
-package io.xrex.model.entity;
+package io.xrex.persistence.entity;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;

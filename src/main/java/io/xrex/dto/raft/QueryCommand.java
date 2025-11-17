@@ -1,7 +1,7 @@
-package io.xrex.model.dto.raft;
+package io.xrex.dto.raft;
 
 import io.xrex.enums.ReadConsistency;
-import io.xrex.model.dto.AccountIdDto;
+import io.xrex.dto.AccountIdDto;
 import lombok.Getter;
 
 /**

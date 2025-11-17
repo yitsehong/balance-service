@@ -1,4 +1,4 @@
-package io.xrex.model.entity;
+package io.xrex.persistence.entity;
 
 import com.alibaba.fastjson2.annotation.JSONField;
 import com.fasterxml.jackson.annotation.JsonFormat;

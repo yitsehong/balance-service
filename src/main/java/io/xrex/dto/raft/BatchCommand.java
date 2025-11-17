@@ -1,6 +1,6 @@
-package io.xrex.model.dto.raft;
+package io.xrex.dto.raft;
 
-import io.xrex.model.dto.event.TransactionEventDto;
+import io.xrex.dto.event.TransactionEventDto;
 import lombok.Getter;
 
 import java.util.List;

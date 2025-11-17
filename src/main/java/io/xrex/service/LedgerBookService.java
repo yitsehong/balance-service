@@ -1,8 +1,8 @@
 package io.xrex.service;
 
-import io.xrex.model.dto.event.TransactionEventDto;
-import io.xrex.model.entity.LedgerBookEntity;
-import io.xrex.repository.LedgerBookDao;
+import io.xrex.dto.event.TransactionEventDto;
+import io.xrex.persistence.entity.LedgerBookEntity;
+import io.xrex.persistence.repository.LedgerBookDao;
 import lombok.RequiredArgsConstructor;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;

@@ -1,6 +1,6 @@
-package io.xrex.model.dto;
+package io.xrex.dto;
 
-import io.xrex.model.entity.ConfigAccountTypeEntity;
+import io.xrex.persistence.entity.ConfigAccountTypeEntity;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;

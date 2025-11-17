@@ -1,4 +1,4 @@
-package io.xrex.model.dto;
+package io.xrex.dto;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;

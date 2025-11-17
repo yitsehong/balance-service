@@ -2,10 +2,10 @@ package io.xrex.service.raft;
 
 import com.alibaba.fastjson2.JSON;
 import io.xrex.enums.ReadConsistency;
-import io.xrex.model.dto.AccountIdDto;
-import io.xrex.model.dto.event.TransactionEventDto;
-import io.xrex.model.dto.raft.BatchCommand;
-import io.xrex.model.dto.raft.QueryCommand;
+import io.xrex.dto.AccountIdDto;
+import io.xrex.dto.event.TransactionEventDto;
+import io.xrex.dto.raft.BatchCommand;
+import io.xrex.dto.raft.QueryCommand;
 import io.xrex.util.UUIDv7Generator;
 import org.apache.ratis.client.RaftClient;
 import org.apache.ratis.client.RaftClientConfigKeys;
