@@ -2,20 +2,25 @@ package io.xrex.service;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
+import io.xrex.dto.PairConfigDto;
+import io.xrex.enums.AssetType_A_BC;
 import io.xrex.persistence.entity.ConfigAccountTypeEntity;
 import io.xrex.persistence.entity.ConfigCoinSymbolEntity;
+import io.xrex.persistence.entity.ConfigSymbolEntity;
 import io.xrex.persistence.repository.ConfigAccountTypeRepository;
 import io.xrex.persistence.repository.ConfigCoinSymbolRepository;
+import io.xrex.persistence.repository.ConfigSymbolRepository;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
+import java.math.BigDecimal;
+import java.util.*;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+
+import static io.xrex.util.XrexConstant.SYSTEM_CHAINUP_ID;
 
 /**
  * This service manages the application's configuration, including account types and coin symbols.
@@ -27,12 +32,19 @@ import java.util.stream.Collectors;
 public class ConfigService {
     private final Cache<Integer, ConfigAccountTypeEntity> configAccountTypeCache = Caffeine.newBuilder()
             .maximumSize(1000_000).expireAfterWrite(1, TimeUnit.DAYS).build();
-
     private final Cache<String, ConfigCoinSymbolEntity> configCoinSymbolCache = Caffeine.newBuilder()
+            .maximumSize(1_000).expireAfterWrite(1, TimeUnit.DAYS).build();
+    private final Cache<String, ConfigSymbolEntity> configSymbolCache = Caffeine.newBuilder()
+            .maximumSize(1_000).expireAfterWrite(1, TimeUnit.DAYS).build();
+    private final Cache<String, PairConfigDto> pairConfigCache = Caffeine.newBuilder()
             .maximumSize(1_000).expireAfterWrite(1, TimeUnit.DAYS).build();
 
     private final ConfigAccountTypeRepository configAccountTypeRepository;
     private final ConfigCoinSymbolRepository configCoinSymbolRepository;
+    private final ConfigSymbolRepository configSymbolRepository;
+
+    private final Map<String, List<ConfigAccountTypeEntity>> coinConfigAccountTypeMap = new HashMap<>();
+    private final Map<String, Map<String, ConfigAccountTypeEntity>> coinPairConfigAccountTypeMap = new HashMap<>();
 
     /**
      * Initializes the configuration caches at application startup.
@@ -40,11 +52,82 @@ public class ConfigService {
      */
     @PostConstruct
     public void initialize() {
-        List<ConfigAccountTypeEntity> configAccountTypeEntityList = configAccountTypeRepository.findAll();
-        for (ConfigAccountTypeEntity c : configAccountTypeEntityList) {
-            configAccountTypeCache.put(c.getAssetType(), c);
+        cacheAccountTypes();
+        cacheSymbols();
+        cachePairConfigs();
+        coinConfigAccountTypeMap.clear();
+        coinPairConfigAccountTypeMap.clear();
+    }
+
+    private void cachePairConfigs() {
+        List<ConfigSymbolEntity> configSymbolEntityList = configSymbolRepository.findAll();
+        for (ConfigSymbolEntity c : configSymbolEntityList) {
+            String pair = c.getSymbol().toLowerCase();
+            String base = c.getBase().toLowerCase();
+            String quote = c.getQuote().toLowerCase();
+
+            PairConfigDto pairConfig = PairConfigDto.builder()
+                    .pair(pair).sysUid(SYSTEM_CHAINUP_ID)
+                    .base(base).quote(quote)
+                    .pricePre(c.getPricePre())
+                    .volumePre(c.getVolumePre())
+                    .minBaseAmount(BigDecimal.ONE.movePointLeft(c.getVolumePre()))
+                    .minQuoteAmount(BigDecimal.ONE.movePointLeft(c.getPricePre()))
+                    .build();
+
+            List<ConfigAccountTypeEntity> baseAccountTypes = coinConfigAccountTypeMap.get(base);
+            pairConfig.setBaseAccountNormal(findAccountType(baseAccountTypes, AssetType_A_BC.U_NORMAL));
+            pairConfig.setBaseAccountLock(findAccountType(baseAccountTypes, AssetType_A_BC.U_LOCK));
+            Integer baseMmAccount = findAccountType(baseAccountTypes, AssetType_A_BC.U_MM_NORMAL);
+            pairConfig.setBaseMmAccountNormal(baseMmAccount);
+            pairConfig.setBaseMmAccountLock(baseMmAccount);
+            pairConfig.setSysBaseAccount(coinPairConfigAccountTypeMap.get(base).get(pair).getAssetType());
+
+            List<ConfigAccountTypeEntity> quoteAccountTypes = coinConfigAccountTypeMap.get(quote);
+            pairConfig.setQuoteAccountNormal(findAccountType(quoteAccountTypes, AssetType_A_BC.U_NORMAL));
+            pairConfig.setQuoteAccountLock(findAccountType(quoteAccountTypes, AssetType_A_BC.U_LOCK));
+            Integer quoteMmAccount = findAccountType(quoteAccountTypes, AssetType_A_BC.U_MM_NORMAL);
+            pairConfig.setQuoteMmAccountNormal(quoteMmAccount);
+            pairConfig.setQuoteMmAccountLock(quoteMmAccount);
+            pairConfig.setSysQuoteAccount(coinPairConfigAccountTypeMap.get(quote).get(pair).getAssetType());
+
+            pairConfigCache.put(pairConfig.getPair(), pairConfig);
         }
     }
+
+    private Integer findAccountType(List<ConfigAccountTypeEntity> accountTypes, AssetType_A_BC assetType) {
+        return accountTypes.stream()
+                .filter(acc -> acc.getAssetA().equals(assetType.account_A) && acc.getAssetBc().equals(assetType.account_BC))
+                .map(ConfigAccountTypeEntity::getAssetType)
+                .findFirst()
+                .orElse(null);
+    }
+
+    private void cacheSymbols() {
+        List<ConfigSymbolEntity> configSymbolEntityList = configSymbolRepository.findAll();
+        for (ConfigSymbolEntity c : configSymbolEntityList) {
+            String pair = c.getSymbol().toLowerCase();
+            configSymbolCache.put(pair, c);
+        }
+    }
+
+    private void cacheAccountTypes() {
+        List<ConfigAccountTypeEntity> configAccountTypeEntityList = configAccountTypeRepository.findAll();
+        configAccountTypeEntityList.forEach(c -> configAccountTypeCache.put(c.getAssetType(), c));
+
+        coinConfigAccountTypeMap.putAll(
+                configAccountTypeEntityList.stream()
+                        .collect(Collectors.groupingBy(c -> c.getCoinSymbol().toLowerCase()))
+        );
+
+        coinPairConfigAccountTypeMap.putAll(
+                configAccountTypeEntityList.stream()
+                        .filter(c -> "1".equals(c.getAssetA()) && "01".equals(c.getAssetBc()))
+                        .collect(Collectors.groupingBy(c -> c.getCoinSymbol().toLowerCase(),
+                                Collectors.toMap(c -> c.getSymbol().toLowerCase(), Function.identity())))
+        );
+    }
+
 
     /**
      * Finds a configuration account type by its asset type.
@@ -55,15 +138,7 @@ public class ConfigService {
      * @return The ConfigAccountTypeEntity, or null if not found.
      */
     public ConfigAccountTypeEntity findByAssetType(Integer assetType) {
-        ConfigAccountTypeEntity result = configAccountTypeCache.getIfPresent(assetType);
-        if (result == null) {
-            result = configAccountTypeRepository.findByAssetType(assetType);
-            if (result == null) {
-                return null;
-            }
-            configAccountTypeCache.put(assetType, result);
-        }
-        return result;
+        return configAccountTypeCache.get(assetType, configAccountTypeRepository::findByAssetType);
     }
 
     /**
@@ -87,15 +162,25 @@ public class ConfigService {
      */
     public ConfigCoinSymbolEntity findByCoinSymbol(String coinSymbol) {
         coinSymbol = coinSymbol.toLowerCase();
-        ConfigCoinSymbolEntity result = configCoinSymbolCache.getIfPresent(coinSymbol);
+        return configCoinSymbolCache.get(coinSymbol, configCoinSymbolRepository::findByCoinSymbol);
+    }
+
+    public ConfigSymbolEntity findByPair(String pair) {
+        pair = pair.toLowerCase();
+        ConfigSymbolEntity result = configSymbolCache.getIfPresent(pair);
         if (result == null) {
-            Optional<ConfigCoinSymbolEntity> optional = configCoinSymbolRepository.findByCoinSymbol(coinSymbol);
+            Optional<ConfigSymbolEntity> optional = configSymbolRepository.findBySymbol(pair);
             if (optional.isEmpty()) {
                 return null;
             }
             result = optional.get();
-            configCoinSymbolCache.put(coinSymbol, result);
+            configSymbolCache.put(pair, result);
         }
         return result;
+    }
+
+    public PairConfigDto findPairConfigByPair(String pair) {
+        pair = pair.toLowerCase();
+        return pairConfigCache.getIfPresent(pair);
     }
 }

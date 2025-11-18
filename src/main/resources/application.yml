@@ -75,14 +75,18 @@ spring:
 # ===================================================================
 app:
   kafka:
-    balance-transfer:
+    transfer-persistence-event:
       topic: t.balance-service.balance-transfer
       group: g.balance-service.balance-transfer
       max-poll-records: 500
-    handle-trade-event:
-      topic: t.balance-service.trade-event
-      group: g.balance-service.trade-event
+    order-change-event:
+      topic: t.balance-service.order-change-event
+      group: g.balance-service.order-change-event
       max-poll-records: 500
+
+balance-service:
+  fee-chainup-id: 1001
+  mm-chainup-id: 63743
 
 snowflake:
   worker-id: 1

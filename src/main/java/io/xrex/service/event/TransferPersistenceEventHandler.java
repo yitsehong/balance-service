@@ -1,8 +1,10 @@
-package io.xrex.service;
+package io.xrex.service.event;
 
 import io.xrex.dto.AccountIdDto;
 import io.xrex.dto.event.TransactionEventDto;
 import io.xrex.persistence.entity.TransactionEntity;
+import io.xrex.service.LedgerBookService;
+import io.xrex.service.TransferService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
@@ -25,7 +27,7 @@ import java.util.stream.Stream;
 @Slf4j
 @Service
 @RequiredArgsConstructor
-public class AccountPersistenceService {
+public class TransferPersistenceEventHandler {
 
     private final TransferService transferService;
     private final LedgerBookService ledgerBookService;
@@ -41,7 +43,7 @@ public class AccountPersistenceService {
      */
     // TODO
     // @KafkaListener(topicPattern = "${app.kafka.balance-transfer.topic}.*", groupId = "${app.kafka.balance-transfer.group}", containerFactory = "consumerFactory")
-    @KafkaListener(topicPattern = "${app.kafka.balance-transfer.topic}", groupId = "${app.kafka.balance-transfer.group}", containerFactory = "persistenceFactory")
+    @KafkaListener(topicPattern = "${app.kafka.transfer-persistence-event.topic}", groupId = "${app.kafka.transfer-persistence-event.group}", containerFactory = "transferPersistenceEventFactory")
     public void consume(List<ConsumerRecord<String, TransactionEventDto>> records, Acknowledgment acknowledgment) {
         if (records.isEmpty()) {
             acknowledgment.acknowledge();

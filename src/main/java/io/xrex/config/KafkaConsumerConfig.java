@@ -1,6 +1,6 @@
 package io.xrex.config;
 
-import io.xrex.dto.event.OrderChangeEventDto;
+import io.xrex.dto.event.TradeEventDto;
 import io.xrex.dto.event.TransactionEventDto;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.kafka.clients.CommonClientConfigs;
@@ -25,8 +25,10 @@ public class KafkaConsumerConfig {
 
     @Value("${spring.kafka.bootstrap-servers}")
     private String bootstrapServers;
-    @Value("${app.kafka.balance-transfer.max-poll-records}")
-    private Integer maxPollRecords;
+    @Value("${app.kafka.transfer-persistence-event.max-poll-records}")
+    private Integer transferPersistenceEventMaxPollRecords;
+    @Value("${app.kafka.order-change-event.max-poll-records}")
+    private Integer orderChangeEventMaxPollRecords;
     @Value("${spring.kafka.properties.security.protocol}")
     private String securityProtocol;
     @Value("${spring.kafka.properties.sasl.mechanism}")
@@ -35,9 +37,10 @@ public class KafkaConsumerConfig {
     private String saslJaasConfig;
 
     @Bean
-    public ConcurrentKafkaListenerContainerFactory<String, TransactionEventDto> persistenceFactory() {
+    public ConcurrentKafkaListenerContainerFactory<String, TransactionEventDto> transferPersistenceEventFactory() {
         Map<String, Object> props = buildCommonProperties();
         props.put(JsonDeserializer.VALUE_DEFAULT_TYPE, TransactionEventDto.class.getName());
+        props.put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, transferPersistenceEventMaxPollRecords);
 
         ConcurrentKafkaListenerContainerFactory<String, TransactionEventDto> factory = new ConcurrentKafkaListenerContainerFactory<>();
         factory.setConsumerFactory(new DefaultKafkaConsumerFactory<>(props));
@@ -48,11 +51,12 @@ public class KafkaConsumerConfig {
     }
 
     @Bean
-    public ConcurrentKafkaListenerContainerFactory<String, OrderChangeEventDto> tradeEventFactory() {
+    public ConcurrentKafkaListenerContainerFactory<String, TradeEventDto> orderChangeEventFactory() {
         Map<String, Object> props = buildCommonProperties();
-        props.put(JsonDeserializer.VALUE_DEFAULT_TYPE, OrderChangeEventDto.class.getName());
+        props.put(JsonDeserializer.VALUE_DEFAULT_TYPE, TradeEventDto.class.getName());
+        props.put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, orderChangeEventMaxPollRecords);
 
-        ConcurrentKafkaListenerContainerFactory<String, OrderChangeEventDto> factory = new ConcurrentKafkaListenerContainerFactory<>();
+        ConcurrentKafkaListenerContainerFactory<String, TradeEventDto> factory = new ConcurrentKafkaListenerContainerFactory<>();
         factory.setConsumerFactory(new DefaultKafkaConsumerFactory<>(props));
         factory.setBatchListener(true); // Enable batch listening
         factory.getContainerProperties().setAckMode(ContainerProperties.AckMode.MANUAL);
@@ -69,7 +73,6 @@ public class KafkaConsumerConfig {
         props.put(JsonDeserializer.USE_TYPE_INFO_HEADERS, true);
         props.put(JsonDeserializer.REMOVE_TYPE_INFO_HEADERS, false);
 
-        props.put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, maxPollRecords);
         props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
         props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
 

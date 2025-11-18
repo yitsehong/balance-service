@@ -1,7 +1,5 @@
 package io.xrex.persistence.entity;
 
-import com.fasterxml.jackson.annotation.JsonFormat;
-import io.xrex.util.XrexConstant;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -27,9 +25,7 @@ public class ExTradeEntity {
     private BigDecimal sellFee;
     private String buyFeeCoin;
     private String sellFeeCoin;
-    @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = XrexConstant.ISO_DATE_FORMAT)
     private LocalDateTime ctime;
-    @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = XrexConstant.ISO_DATE_FORMAT)
     private LocalDateTime mtime;
     private Byte buyType;
     private Byte sellType;
