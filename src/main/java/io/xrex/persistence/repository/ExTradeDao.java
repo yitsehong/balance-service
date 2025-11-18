@@ -1,7 +1,9 @@
 package io.xrex.persistence.repository;
 
+import io.xrex.persistence.entity.ExOrderEntity;
 import io.xrex.persistence.entity.ExTradeEntity;
 import lombok.RequiredArgsConstructor;
+import org.springframework.jdbc.core.BeanPropertyRowMapper;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.jdbc.support.KeyHolder;
@@ -81,6 +83,12 @@ public class ExTradeDao {
         }, keyHolder);
 
         return keyHolder.getKey().longValue();
+    }
+
+    public ExTradeEntity findLatestTrade(String tableName) {
+        isValidTableName(tableName);
+        String sql = "SELECT * FROM " + tableName + " ORDER BY id DESC LIMIT 1";
+        return jdbcTemplate.queryForObject(sql, new BeanPropertyRowMapper<>(ExTradeEntity.class));
     }
 
     private void isValidTableName(String tableName) {

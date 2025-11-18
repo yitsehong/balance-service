@@ -82,6 +82,12 @@ public class ExOrderDao {
         return jdbcTemplate.queryForObject(sql, new Object[]{id}, new ExOrderEntityRowMapper());
     }
 
+    public ExOrderEntity findLatestOrder(String tableName) {
+        isValidTableName(tableName);
+        String sql = "SELECT * FROM " + tableName + " ORDER BY id DESC LIMIT 1";
+        return jdbcTemplate.queryForObject(sql, new ExOrderEntityRowMapper());
+    }
+
     public List<ExOrderEntity> findByIdIn(List<Long> ids, String tableName) {
         isValidTableName(tableName);
         if (ids == null || ids.isEmpty()) {
@@ -92,10 +98,11 @@ public class ExOrderDao {
         return jdbcTemplate.query(sql, ids.toArray(), new ExOrderEntityRowMapper());
     }
 
-    public void batchUpsert(List<ExOrderEntity> orders, String tableName) {
+    @Transactional
+    public List<Long> batchUpsert(List<ExOrderEntity> orders, String tableName) {
         isValidTableName(tableName);
         if (orders == null || orders.isEmpty()) {
-            return;
+            return new ArrayList<>();
         }
         String sql = "INSERT INTO " + tableName + " (id, user_id, side, price, volume, fee_account_type, fee_deduct_type, " +
                 "fee_rate_maker, fee_rate_taker, fee, fee_coin_rate, deal_volume, deal_money, avg_price, locked_amount, " +
@@ -103,19 +110,19 @@ public class ExOrderDao {
                 "quote_subaccount_type, base_account_type, base_subaccount_type, margin_trade_id, margin_direction, bot_id) " +
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) " +
                 "ON DUPLICATE KEY UPDATE " +
-                "status = VALUES(status), " +
                 "deal_volume = VALUES(deal_volume), " +
                 "deal_money = VALUES(deal_money), " +
                 "avg_price = VALUES(avg_price), " +
                 "mtime = VALUES(mtime)";
 
-        jdbcTemplate.batchUpdate(sql, new BatchPreparedStatementSetter() {
-            @Override
-            public void setValues(PreparedStatement ps, int i) throws SQLException {
-                ExOrderEntity order = orders.get(i);
+        List<Long> resultIds = new ArrayList<>();
+        for (ExOrderEntity order : orders) {
+            KeyHolder keyHolder = new GeneratedKeyHolder();
+            jdbcTemplate.update(connection -> {
+                PreparedStatement ps = connection.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS);
                 ps.setLong(1, order.getId());
                 ps.setInt(2, order.getUserId());
-                ps.setString(3, order.getSide().value);
+                ps.setString(3, order.getSide().name());
                 ps.setBigDecimal(4, order.getPrice());
                 ps.setBigDecimal(5, order.getVolume());
                 ps.setInt(6, order.getFeeAccountType());
@@ -128,14 +135,14 @@ public class ExOrderDao {
                 ps.setBigDecimal(13, order.getDealMoney());
                 ps.setBigDecimal(14, order.getAvgPrice());
                 ps.setBigDecimal(15, order.getLockedAmount());
-                ps.setByte(16, order.getStatus().value);
-                ps.setByte(17, order.getType().value);
+                ps.setByte(16, (byte) order.getStatus().value);
+                ps.setByte(17, (byte) order.getType().value);
                 ps.setTimestamp(18, Timestamp.valueOf(order.getCtime()));
                 ps.setTimestamp(19, Timestamp.valueOf(order.getMtime()));
-                ps.setByte(20, order.getSource().value);
-                ps.setByte(21, order.getOrderType().value);
+                ps.setByte(20, (byte) order.getSource().value);
+                ps.setByte(21, (byte) order.getOrderType().value);
                 ps.setBigDecimal(22, order.getStopPrice());
-                ps.setByte(23, order.getStopPriceDirection().value);
+                ps.setByte(23, (byte) order.getStopPriceDirection().value);
                 ps.setInt(24, order.getQuoteAccountType());
                 ps.setString(25, order.getQuoteSubaccountType());
                 ps.setInt(26, order.getBaseAccountType());
@@ -143,13 +150,11 @@ public class ExOrderDao {
                 ps.setLong(28, order.getMarginTradeId());
                 ps.setString(29, order.getMarginDirection());
                 ps.setLong(30, order.getBotId());
-            }
-
-            @Override
-            public int getBatchSize() {
-                return orders.size();
-            }
-        });
+                return ps;
+            }, keyHolder);
+            resultIds.add(keyHolder.getKey().longValue());
+        }
+        return resultIds;
     }
 
     public int updateStatus(Long id, OrderStatus newStatus, String tableName) {

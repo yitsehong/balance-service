@@ -124,7 +124,7 @@ public class ConfigService {
                 configAccountTypeEntityList.stream()
                         .filter(c -> "1".equals(c.getAssetA()) && "01".equals(c.getAssetBc()))
                         .collect(Collectors.groupingBy(c -> c.getCoinSymbol().toLowerCase(),
-                                Collectors.toMap(c -> c.getSymbol().toLowerCase(), Function.identity())))
+                                Collectors.toMap(c -> c.getSymbol().toLowerCase(), Function.identity(), (existing, replacement) -> existing)))
         );
     }
 

@@ -21,7 +21,6 @@ public class TradeEventDto {
     private String pair;
     private Long orderId;
     private Integer chainupId;
-    private Integer counterPartyChainupId;
     private OrderSide orderSide;
     private ExTradeDto trade;
 

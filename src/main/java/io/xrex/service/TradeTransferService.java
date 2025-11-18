@@ -54,7 +54,8 @@ public class TradeTransferService {
 
         ExOrderEntity exOrder;
         ExOrderEntity counterExOrder = null;
-        if (mmChainupId.equals(tradeEvent.getCounterPartyChainupId())) {
+        if (OrderLeverType.MARKET_MAKING_ORDER.value == exTrade.getBuyType()
+                || OrderLeverType.MARKET_MAKING_ORDER.value == exTrade.getSellType()) {
             orders.add(tradeEvent.toMMExOrderEntity(mmChainupId));
             exOrder = exOrderDao.findById(tradeEvent.getOrderId(), pairConfig.getOrderTable());
         } else {
@@ -67,10 +68,19 @@ public class TradeTransferService {
         updateOrder(exTrade, counterExOrder, pairConfig);
         orders.add(exOrder);
         orders.add(counterExOrder);
+        List<Long> orderIds = exOrderDao.batchUpsert(orders, pairConfig.getOrderTable());
+        if (OrderLeverType.MARKET_MAKING_ORDER.value == exTrade.getBuyType()
+                || OrderLeverType.MARKET_MAKING_ORDER.value == exTrade.getSellType()) {
+            Long mmOrderId = orderIds.stream().filter(oid -> !tradeEvent.getOrderId().equals(oid)).findFirst().orElse(null);
+            if (OrderLeverType.MARKET_MAKING_ORDER.value == exTrade.getBuyType()) {
+                exTrade.setBidId(mmOrderId);
+            } else {
+                exTrade.setAskId(mmOrderId);
+            }
+        }
 
         Long tradeId = exTradeDao.insert(exTrade, pairConfig.getTradeTable());
         exTrade.setId(tradeId);
-        exOrderDao.batchUpsert(orders, pairConfig.getOrderTable());
 
         List<TransferRequest> requests = new ArrayList<>();
         requests.add(quoteAmountTransfer(exTrade, exOrder, pairConfig));

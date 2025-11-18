@@ -5,13 +5,21 @@ import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 import io.xrex.util.BigDecimalToStringSerializer;
 import io.xrex.util.DoubleToStringSerializer;
 import io.xrex.util.XrexConstant;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
+import jakarta.persistence.Transient;
 import lombok.Data;
 
 import java.math.BigDecimal;
 import java.util.Date;
 
 @Data
+@Entity
+@Table(name = "config_symbol")
 public class ConfigSymbolEntity {
+    @Id
     private Integer id;
     private String symbol;
     private String base;
@@ -22,8 +30,11 @@ public class ConfigSymbolEntity {
     )
     private BigDecimal openPrice;
     private Byte isFiat;
+    @Column(name = "depth0_pre")
     private Integer depth0Pre;
+    @Column(name = "depth1_pre")
     private Integer depth1Pre;
+    @Column(name = "depth2_pre")
     private Integer depth2Pre;
     private Integer pricePre;
     private Integer volumePre;
@@ -63,15 +74,6 @@ public class ConfigSymbolEntity {
     private Byte isShow;
     private Byte isIndexShow;
     private Byte isConvertOnly;
-    @JsonSerialize(
-            using = BigDecimalToStringSerializer.class
-    )
-    private BigDecimal orderMinUsdtValue;
-    @JsonSerialize(
-            using = BigDecimalToStringSerializer.class
-    )
-    private BigDecimal marketOrderMaxUsdtValue;
-    private String matchingServerIp;
     @JsonSerialize(
             using = BigDecimalToStringSerializer.class
     )

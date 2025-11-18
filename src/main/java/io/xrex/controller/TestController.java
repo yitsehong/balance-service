@@ -1,15 +1,28 @@
 package io.xrex.controller;
 
 import io.grpc.stub.StreamObserver;
+import io.xrex.dto.event.ExTradeDto;
+import io.xrex.dto.event.TradeEventDto;
+import io.xrex.enums.*;
 import io.xrex.grpc.*;
+import io.xrex.persistence.entity.ExOrderEntity;
+import io.xrex.persistence.entity.ExTradeEntity;
+import io.xrex.persistence.repository.ExOrderDao;
+import io.xrex.persistence.repository.ExTradeDao;
 import io.xrex.service.grpc.TransferGrpcService;
 import io.xrex.util.UUIDv7Generator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
@@ -20,28 +33,20 @@ import java.util.concurrent.ThreadLocalRandom;
 public class TestController {
 
     private final TransferGrpcService transferGrpcService;
+    private final KafkaTemplate<String, TradeEventDto> testKafkaTemplate;
+    private final ExTradeDao exTradeDao;
+    private final ExOrderDao exOrderDao;
+
+    @Value("${app.kafka.trade-event.topic}")
+    private String tradeEventTopic;
+    @Value("${balance-service.mm-chainup-id}")
+    private Integer mmChainupId;
 
     @PostMapping("/api/v1/test")
     public void test(@RequestParam(value = "request_count") int requestCount,
                      @RequestParam(value = "loop") int loop) throws InterruptedException {
 
-        StreamObserver<TransferResponse> responseObserver = new StreamObserver<>() {
-            @Override
-            public void onNext(TransferResponse value) {
-                //log.info("Test transfer submitted to Raft: {}", value.getMessage());
-            }
-
-            @Override
-            public void onError(Throwable t) {
-                log.error("Test transfer error", t);
-            }
-
-            @Override
-            public void onCompleted() {
-                //log.info("Test transfer stream completed.");
-            }
-        };
-
+        StreamObserver<TransferResponse> responseObserver = build();
         for (int i = 0; i < loop; i++) {
             Integer toUid = ThreadLocalRandom.current().nextInt(19900, 19921);
             for (int j = 0; j < requestCount; j++) {
@@ -73,6 +78,64 @@ public class TestController {
             }
             Thread.sleep(500);
         }
+    }
+
+    @PostMapping("/api/v1/test_trade")
+    public void test() throws InterruptedException {
+        String orderTable = "ex_order_btcusdt";
+        String tradeTable = "ex_trade_btcusdt";
+        Integer chainupId = 19914;
+        BigDecimal spendMoney = new BigDecimal("100");
+        LocalDateTime now = LocalDateTime.now();
+        ExOrderEntity marketOrder = ExOrderEntity.builder()
+                .userId(chainupId).side(OrderSide.BUY)
+                .price(BigDecimal.ZERO).volume(spendMoney)
+                .feeDeductType(FeeDeductType.INNER).feeRateTaker(0.001d).feeRateMaker(0.001d)
+                .fee(BigDecimal.ZERO).feeCoinRate(0d).dealVolume(BigDecimal.ZERO).dealMoney(BigDecimal.ZERO).avgPrice(BigDecimal.ZERO).lockedAmount(spendMoney)
+                .status(OrderStatus.INIT).type(OrderType.MARKET).ctime(now).mtime(now).source(OrderSourceType.WEB).orderType(OrderLeverType.NORMAL_ORDER)
+                .build();
+        List<Long> orderIds = exOrderDao.batchInsert(List.of(marketOrder), orderTable);
+        Long orderId = orderIds.getFirst();
+
+        List<TransferRequest> requests = new ArrayList<>();
+        TransferRequest request = TransferRequest.newBuilder()
+                .setFromUid(chainupId).setFromType(201106).setToUid(chainupId).setToType(202106)
+                .setAmount(spendMoney.toPlainString()).setScene(TransactionScene.CREATE_ORDER.value).setMeta("0")
+                .setRefType(orderTable).setRefId(orderId).setOpUid(1).setOpIp("127.0.0.1")
+                .build();
+        requests.add(request);
+        TransferListRequest listRequest = TransferListRequest.newBuilder().addAllRequests(requests).setRequestId(UUIDv7Generator.generate()).build();
+
+        StreamObserver<TransferResponse> responseObserver = build();
+        transferGrpcService.transfer(listRequest, responseObserver);
+
+        ExTradeEntity latestTrade = exTradeDao.findLatestTrade(tradeTable);
+
+        BigDecimal volume = spendMoney.divide(latestTrade.getPrice(), 6, RoundingMode.DOWN);
+        BigDecimal fee = volume.multiply(new BigDecimal("0.001"));
+        TradeEventDto tradeEventDto = TradeEventDto.builder()
+                .pair(orderTable.replace("ex_order_", StringUtils.EMPTY))
+                .orderId(orderId)
+                .chainupId(chainupId)
+                .orderSide(marketOrder.getSide())
+                .trade(ExTradeDto.builder()
+                        .price(latestTrade.getPrice())
+                        .volume(volume.subtract(fee))
+                        .bidId(orderId)
+                        .askId(0L)
+                        .trendSide("BUY")
+                        .bidUserId(chainupId)
+                        .askUserId(mmChainupId)
+                        .buyFee(fee)
+                        .sellFee(BigDecimal.ZERO)
+                        .buyFeeCoin("BTC")
+                        .sellFeeCoin("USDT")
+                        .ctime(now).mtime(now)
+                        .buyType(OrderLeverType.NORMAL_ORDER.value)
+                        .sellType(OrderLeverType.MARKET_MAKING_ORDER.value)
+                        .build()).build();
+
+        testKafkaTemplate.send(tradeEventTopic, "ex_trade_btcusdt", tradeEventDto);
     }
 
     @PostMapping("/api/v2/test")
@@ -125,5 +188,25 @@ public class TestController {
             }
             uid++;
         }
+    }
+
+    private StreamObserver<TransferResponse> build() {
+        return new StreamObserver<>() {
+            @Override
+            public void onNext(TransferResponse value) {
+                //log.info("Test transfer submitted to Raft: {}", value.getMessage());
+            }
+
+            @Override
+            public void onError(Throwable t) {
+                log.error("Test transfer error", t);
+            }
+
+            @Override
+            public void onCompleted() {
+                //log.info("Test transfer stream completed.");
+            }
+        };
+
     }
 }

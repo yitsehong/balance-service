@@ -1,5 +1,6 @@
 package io.xrex.config;
 
+import io.xrex.dto.event.TradeEventDto;
 import io.xrex.dto.event.TransactionEventDto;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.kafka.clients.CommonClientConfigs;
@@ -11,7 +12,6 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.kafka.core.DefaultKafkaProducerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
-import org.springframework.kafka.core.ProducerFactory;
 import org.springframework.kafka.support.serializer.JsonSerializer;
 
 import java.util.HashMap;
@@ -30,7 +30,7 @@ public class KafkaProducerConfig {
     private String saslJaasConfig;
 
     @Bean
-    public ProducerFactory<String, TransactionEventDto> producerFactory() {
+    public KafkaTemplate<String, TransactionEventDto> kafkaTemplate() {
         Map<String, Object> configProps = new HashMap<>();
         configProps.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
         configProps.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
@@ -47,11 +47,27 @@ public class KafkaProducerConfig {
             configProps.put(SaslConfigs.SASL_JAAS_CONFIG, saslJaasConfig);
         }
 
-        return new DefaultKafkaProducerFactory<>(configProps);
+        return  new KafkaTemplate<>(new DefaultKafkaProducerFactory<>(configProps));
     }
 
     @Bean
-    public KafkaTemplate<String, TransactionEventDto> kafkaTemplate() {
-        return new KafkaTemplate<>(producerFactory());
+    public KafkaTemplate<String, TradeEventDto> testKafkaTemplate() {
+        Map<String, Object> configProps = new HashMap<>();
+        configProps.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
+        configProps.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
+        configProps.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, JsonSerializer.class);
+        // For high throughput, you can tune these settings
+        configProps.put(ProducerConfig.LINGER_MS_CONFIG, "20"); // Wait up to 20ms to batch sends
+        configProps.put(ProducerConfig.BATCH_SIZE_CONFIG, Integer.toString(32 * 1024)); // 32KB batch size
+        configProps.put(ProducerConfig.COMPRESSION_TYPE_CONFIG, "lz4"); // Use snappy compression
+        configProps.put(ProducerConfig.ACKS_CONFIG, "all"); // Leader ack is a good balance of safety and performance
+
+        if (StringUtils.isNotBlank(saslJaasConfig)) {
+            configProps.put(CommonClientConfigs.SECURITY_PROTOCOL_CONFIG, securityProtocol);
+            configProps.put(SaslConfigs.SASL_MECHANISM, saslMechanism);
+            configProps.put(SaslConfigs.SASL_JAAS_CONFIG, saslJaasConfig);
+        }
+
+        return  new KafkaTemplate<>(new DefaultKafkaProducerFactory<>(configProps));
     }
 }
