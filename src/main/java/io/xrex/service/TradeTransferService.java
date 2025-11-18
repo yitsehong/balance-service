@@ -22,6 +22,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -48,55 +49,51 @@ public class TradeTransferService {
     @Transactional
     public TransferListRequest handleTradeTransfer(TradeEventDto tradeEvent) {
         PairConfigDto pairConfig = configService.findPairConfigByPair(tradeEvent.getPair());
-
-        List<ExOrderEntity> orders = new ArrayList<>();
         ExTradeEntity exTrade = tradeEvent.getTrade().toEntity();
 
-        ExOrderEntity exOrder;
-        ExOrderEntity counterExOrder = null;
+        LocalDateTime handleTime = LocalDateTime.now();
+        Duration duration = Duration.between(tradeEvent.getEventTime(),  handleTime);
+        log.info("[handleTradeTransfer] timeDiff={}ms", duration.toMillis());
         if (OrderLeverType.MARKET_MAKING_ORDER.value == exTrade.getBuyType()
                 || OrderLeverType.MARKET_MAKING_ORDER.value == exTrade.getSellType()) {
-            orders.add(tradeEvent.toMMExOrderEntity(mmChainupId));
-            exOrder = exOrderDao.findById(tradeEvent.getOrderId(), pairConfig.getOrderTable());
-        } else {
-            List<ExOrderEntity> exOrderEntityList = exOrderDao.findByIdIn(List.of(exTrade.getBidId(), exTrade.getAskId()), pairConfig.getOrderTable());
-            exOrder = exOrderEntityList.stream().filter(o -> tradeEvent.getOrderId().equals(o.getId())).findFirst().orElse(null);
-            counterExOrder = exOrderEntityList.stream().filter(o -> !tradeEvent.getOrderId().equals(o.getId())).findFirst().orElse(null);
-        }
-
-        updateOrder(exTrade, exOrder, pairConfig);
-        updateOrder(exTrade, counterExOrder, pairConfig);
-        orders.add(exOrder);
-        orders.add(counterExOrder);
-        List<Long> orderIds = exOrderDao.batchUpsert(orders, pairConfig.getOrderTable());
-        if (OrderLeverType.MARKET_MAKING_ORDER.value == exTrade.getBuyType()
-                || OrderLeverType.MARKET_MAKING_ORDER.value == exTrade.getSellType()) {
-            Long mmOrderId = orderIds.stream().filter(oid -> !tradeEvent.getOrderId().equals(oid)).findFirst().orElse(null);
+            Long mmOrderId = exOrderDao.insert(tradeEvent.toMMExOrderEntity(mmChainupId, handleTime), pairConfig.getOrderTable());
             if (OrderLeverType.MARKET_MAKING_ORDER.value == exTrade.getBuyType()) {
                 exTrade.setBidId(mmOrderId);
             } else {
                 exTrade.setAskId(mmOrderId);
             }
         }
+        List<ExOrderEntity> exOrderEntityList = exOrderDao.findByIdIn(List.of(exTrade.getBidId(), exTrade.getAskId()), pairConfig.getOrderTable());
+        ExOrderEntity bid = exOrderEntityList.stream().filter(o -> exTrade.getBidId().equals(o.getId())).findFirst().orElse(null);
+        ExOrderEntity ask = exOrderEntityList.stream().filter(o -> exTrade.getAskId().equals(o.getId())).findFirst().orElse(null);
+        log.info("[handleTradeTransfer] exOrderEntityList={}", exOrderEntityList);
+
+        updateOrder(exTrade, bid, pairConfig, handleTime);
+        updateOrder(exTrade, ask, pairConfig, handleTime);
+        log.info("[handleTradeTransfer] bid={}, ask={}", bid, ask);
 
         Long tradeId = exTradeDao.insert(exTrade, pairConfig.getTradeTable());
         exTrade.setId(tradeId);
+        log.info("[handleTradeTransfer] tradeId={}, exTrade={}", tradeId, exTrade);
 
         List<TransferRequest> requests = new ArrayList<>();
-        requests.add(quoteAmountTransfer(exTrade, exOrder, pairConfig));
-        requests.add(baseAmountTransfer(exTrade, exOrder, pairConfig));
-        requests.add(sellFeeTransfer(exTrade, exOrder, pairConfig));
-        requests.add(buyFeeTransfer(exTrade, exOrder, pairConfig));
+        requests.add(quoteAmountTransfer(exTrade, bid, ask, pairConfig));
+        requests.add(baseAmountTransfer(exTrade, bid, ask, pairConfig));
+        requests.add(sellFeeTransfer(exTrade, bid, ask, pairConfig));
+        requests.add(buyFeeTransfer(exTrade, bid, ask, pairConfig));
 
-        handleRemainMoney(exOrder, pairConfig, requests);
-        handleRemainMoney(counterExOrder, pairConfig, requests);
+        handleRemainMoney(bid, pairConfig, requests);
+        handleRemainMoney(ask, pairConfig, requests);
         return TransferListRequest.newBuilder().addAllRequests(requests).setRequestId(UUIDv7Generator.generate()).build();
     }
 
-    private void updateOrder(ExTradeEntity exTrade, ExOrderEntity exOrder, PairConfigDto pairConfig) {
-        if (exOrder == null) {
+    private void updateOrder(ExTradeEntity exTrade, ExOrderEntity exOrder, PairConfigDto pairConfig, LocalDateTime handleTime) {
+        if (exOrder == null || OrderLeverType.MARKET_MAKING_ORDER == exOrder.getOrderType()) {
             return;
         }
+
+        BigDecimal fee = OrderSide.BUY == exOrder.getSide() ? exTrade.getBuyFee() : exTrade.getSellFee();
+        exOrder.setFee(Optional.ofNullable(exOrder.getFee()).orElse(BigDecimal.ZERO).multiply(fee));
 
         BigDecimal dealMoney = exTrade.getVolume().multiply(exTrade.getPrice());
         exOrder.setDealVolume(Optional.ofNullable(exOrder.getDealVolume()).orElse(BigDecimal.ZERO).add(exTrade.getVolume()));
@@ -112,11 +109,14 @@ public class TradeTransferService {
         if (!exOrder.isMarketOrder()) {
             exOrder.setStatus(exOrder.isFilled(pairConfig) ? OrderStatus.FILLED : OrderStatus.PART_FILLED);
         }
-        exOrder.setMtime(LocalDateTime.now());
+        exOrder.setMtime(handleTime);
+
+        OrderStatus status = exOrder.isFilled(pairConfig) ? OrderStatus.FILLED : OrderStatus.PART_FILLED;
+        exOrderDao.updateOrder(exOrder.getId(), status, fee, exTrade.getVolume(), dealMoney, orderAvgPrice, handleTime, pairConfig.getOrderTable());
     }
 
     private void handleRemainMoney(ExOrderEntity exOrder, PairConfigDto pairConfig, List<TransferRequest> requests) {
-        if (exOrder == null) {
+        if (exOrder == null || OrderLeverType.MARKET_MAKING_ORDER == exOrder.getOrderType()) {
             return;
         }
 
@@ -132,6 +132,7 @@ public class TradeTransferService {
         }
 
         BigDecimal remainAmount = exOrder.getRemainAmount();
+        log.info("[handleRemainMoney] remainAmount={}", remainAmount);
         if (remainAmount.compareTo(BigDecimal.ZERO) > 0) {
             Pair<Integer, Integer> remainAccountTypes = getRemainAccountTypes(exOrder, pairConfig);
             TransferRequest.Builder trans = TransferRequest.newBuilder()
@@ -150,17 +151,29 @@ public class TradeTransferService {
                 trans.setToSubType(subAccountType);
             }
             requests.add(trans.build());
+            log.info("[handleRemainMoney] trans={}", trans.build());
         }
     }
 
-    private TransferRequest quoteAmountTransfer(ExTradeEntity exTradeEntity, ExOrderEntity exOrder, PairConfigDto pairConfig) {
+    private TransferRequest quoteAmountTransfer(ExTradeEntity exTradeEntity, ExOrderEntity bid, ExOrderEntity ask, PairConfigDto pairConfig) {
         // buyer.quoteLock -> seller.quoteNormal  quoteAmount
-        Integer quoteAccountType = exOrder.getQuoteAccountType();
-        Integer fromType = OrderLeverType.NORMAL_ORDER.value == exTradeEntity.getBuyType() ?
-                pairConfig.getQuoteAccountLock() : quoteAccountType;
+        Integer fromType;
+        if (OrderLeverType.NORMAL_ORDER.value == exTradeEntity.getBuyType()) {
+            fromType = pairConfig.getQuoteAccountLock();
+        } else if (OrderLeverType.MARKET_MAKING_ORDER.value == exTradeEntity.getBuyType()) {
+            fromType = pairConfig.getQuoteMmAccountLock();
+        } else {
+            fromType = bid.getQuoteAccountType();
+        }
 
-        Integer toType = OrderLeverType.NORMAL_ORDER.value == exTradeEntity.getSellType() ?
-                pairConfig.getQuoteAccountNormal() : quoteAccountType;
+        Integer toType;
+        if (OrderLeverType.NORMAL_ORDER.value == exTradeEntity.getSellType()) {
+            toType = pairConfig.getQuoteAccountNormal();
+        } else if (OrderLeverType.MARKET_MAKING_ORDER.value == exTradeEntity.getSellType()) {
+            toType = pairConfig.getQuoteMmAccountNormal();
+        } else {
+            toType = ask.getQuoteAccountType();
+        }
 
         BigDecimal quoteAmount = exTradeEntity.getPrice().multiply(exTradeEntity.getVolume());
         TransferRequest.Builder transA = TransferRequest.newBuilder()
@@ -173,22 +186,34 @@ public class TradeTransferService {
                 .setScene(TransactionScene.TRADE.value)
                 .setOpUid(SYSTEM_CHAINUP_ID)
                 .setOpIp(StringUtils.EMPTY);
-        if (exOrder.isRelatedSubAccount()) {
-            if (OrderSide.BUY == exOrder.getSide()) {
-                transA.setFromSubType(exOrder.getQuoteSubaccountType());
-            } else {
-                transA.setToSubType(exOrder.getQuoteSubaccountType());
-            }
+        if (bid.isRelatedSubAccount()) {
+            transA.setFromSubType(bid.getQuoteSubaccountType());
+        }
+        if (ask.isRelatedSubAccount()) {
+            transA.setToSubType(ask.getQuoteSubaccountType());
         }
         return transA.build();
     }
 
-    private TransferRequest baseAmountTransfer(ExTradeEntity exTradeEntity, ExOrderEntity exOrder, PairConfigDto pairConfig) {
+    private TransferRequest baseAmountTransfer(ExTradeEntity exTradeEntity, ExOrderEntity bid, ExOrderEntity ask, PairConfigDto pairConfig) {
         // seller.baseLock -> buyer.baseNormal  baseVolume
-        Integer fromType = OrderLeverType.NORMAL_ORDER.value == exTradeEntity.getSellType() ?
-                pairConfig.getBaseAccountLock() : exOrder.getBaseAccountType();
-        Integer toType = OrderLeverType.NORMAL_ORDER.value == exTradeEntity.getBuyType() ?
-                pairConfig.getBaseAccountNormal() : exOrder.getBaseAccountType();
+        Integer fromType;
+        if (OrderLeverType.NORMAL_ORDER.value == exTradeEntity.getSellType()) {
+            fromType = pairConfig.getBaseAccountLock();
+        } else if (OrderLeverType.MARKET_MAKING_ORDER.value == exTradeEntity.getSellType()) {
+            fromType = pairConfig.getBaseMmAccountLock();
+        } else {
+            fromType = ask.getBaseAccountType();
+        }
+
+        Integer toType;
+        if (OrderLeverType.NORMAL_ORDER.value == exTradeEntity.getBuyType()) {
+            toType = pairConfig.getBaseAccountNormal();
+        } else if (OrderLeverType.MARKET_MAKING_ORDER.value == exTradeEntity.getBuyType()) {
+            toType = pairConfig.getBaseMmAccountNormal();
+        } else {
+            toType = bid.getBaseAccountType();
+        }
 
         TransferRequest.Builder transB = TransferRequest.newBuilder()
                 .setFromUid(exTradeEntity.getAskUserId()).setFromType(fromType)
@@ -200,30 +225,30 @@ public class TradeTransferService {
                 .setScene(TransactionScene.TRADE.value)
                 .setOpUid(SYSTEM_CHAINUP_ID)
                 .setOpIp(StringUtils.EMPTY);
-        if (exOrder.isRelatedSubAccount()) {
-            if (OrderSide.BUY == exOrder.getSide()) {
-                transB.setToSubType(exOrder.getBaseSubaccountType());
-            } else {
-                transB.setFromSubType(exOrder.getBaseSubaccountType());
-            }
+        if (bid.isRelatedSubAccount()) {
+            transB.setToSubType(bid.getBaseSubaccountType());
+        }
+        if (ask.isRelatedSubAccount()) {
+            transB.setFromSubType(ask.getBaseSubaccountType());
         }
         return transB.build();
     }
 
-    private TransferRequest sellFeeTransfer(ExTradeEntity exTradeEntity, ExOrderEntity exOrder, PairConfigDto pairConfig) {
+    private TransferRequest sellFeeTransfer(ExTradeEntity exTradeEntity, ExOrderEntity bid, ExOrderEntity ask, PairConfigDto pairConfig) {
         // 收seller手续费：
         // inner: seller.quoteNormal -> exchange.quoteFee  quoteFeeAmount
         // outer: seller.quoteLock -> exchange.quoteFee  quoteFeeAmount
         Integer fromType;
         Integer toType;
-        String scene = getFeeTransactionScene(exOrder);
+        String scene = getFeeTransactionScene(ask);
         String meta = getOrderFeeTransactionMeta(exTradeEntity, OrderSide.SELL, pairConfig);
-        if (OrderLeverType.NORMAL_ORDER.value == exTradeEntity.getSellType()) {
+        if (OrderLeverType.NORMAL_ORDER.value == exTradeEntity.getSellType()
+                || OrderLeverType.MARKET_MAKING_ORDER.value == exTradeEntity.getSellType()) {
             fromType = pairConfig.getQuoteAccountNormal();
             toType = pairConfig.getSysQuoteAccount();
         } else {
-            fromType = exOrder.getQuoteAccountType();
-            toType = exOrder.getFeeAccountType();
+            fromType = ask.getQuoteAccountType();
+            toType = ask.getFeeAccountType();
         }
 
         TransferRequest.Builder transC = TransferRequest.newBuilder()
@@ -236,61 +261,58 @@ public class TradeTransferService {
                 .setScene(scene)
                 .setOpUid(SYSTEM_CHAINUP_ID)
                 .setOpIp(StringUtils.EMPTY);
+        if (ask.isRelatedSubAccount()) {
+            transC.setFromSubType(ask.getQuoteSubaccountType());
+        }
 
-        if (exOrder.isRelatedSubAccount()) {
-            if (OrderSide.BUY == exOrder.getSide()) {
-                transC.setToSubType(exOrder.getQuoteSubaccountType());
-            } else {
-                transC.setFromSubType(exOrder.getQuoteSubaccountType());
-            }
+        if (bid.isRelatedSubAccount()) {
+            transC.setToSubType(bid.getQuoteSubaccountType());
         }
         return transC.build();
     }
 
-    private TransferRequest buyFeeTransfer(ExTradeEntity exTradeEntity, ExOrderEntity exOrder, PairConfigDto pairConfig) {
+    private TransferRequest buyFeeTransfer(ExTradeEntity exTradeEntity, ExOrderEntity bid, ExOrderEntity ask, PairConfigDto pairConfig) {
         // 收buyer手续费：
         // inner: buyer.baseNormal -> exchange.baseFee  baseFeeVolume
         // outer: buyer.baseLock -> exchange.baseFee  baseFeeVolume
         Integer fromType;
         Integer toType;
-        String scene = getFeeTransactionScene(exOrder);
+        String scene = getFeeTransactionScene(bid);
         String meta = getOrderFeeTransactionMeta(exTradeEntity, OrderSide.BUY, pairConfig);
-        if (exOrder.isInnerFeeDeduct()) {
-            if (exTradeEntity.getBuyType() == OrderLeverType.NORMAL_ORDER.value) {
+        if (bid.isInnerFeeDeduct()) {
+            if (exTradeEntity.getBuyType() == OrderLeverType.NORMAL_ORDER.value
+                    || OrderLeverType.MARKET_MAKING_ORDER.value == exTradeEntity.getBuyType()) {
                 fromType = pairConfig.getBaseAccountNormal();
                 toType = pairConfig.getSysBaseAccount();
             } else {
-                fromType = exOrder.getBaseAccountType();
-                toType = exOrder.getFeeAccountType();
+                fromType = bid.getBaseAccountType();
+                toType = bid.getFeeAccountType();
             }
         } else {
             // 使用计价货币收手续费
             fromType = pairConfig.getQuoteAccountLock();
             toType = pairConfig.getSysQuoteAccount();
-            if (exOrder.isRelatedSubAccount()
-                    || OrderLeverType.MARKET_MAKING_ORDER.value == exTradeEntity.getBuyType()) {
-                fromType = exOrder.getQuoteAccountType();
-                toType = exOrder.getFeeAccountType();
+            if (bid.isRelatedSubAccount()) {
+                fromType = bid.getQuoteAccountType();
+                toType = bid.getFeeAccountType();
             }
         }
 
         TransferRequest.Builder transD = TransferRequest.newBuilder()
                 .setFromUid(exTradeEntity.getBidUserId()).setFromType(fromType)
                 .setToUid(feeChainupId).setToType(toType)
-                .setAmount(exTradeEntity.getSellFee().toPlainString())
+                .setAmount(exTradeEntity.getBuyFee().toPlainString())
                 .setRefType(pairConfig.getTradeTable())
                 .setRefId(exTradeEntity.getId())
                 .setMeta(meta)
                 .setScene(scene)
                 .setOpUid(SYSTEM_CHAINUP_ID)
                 .setOpIp(StringUtils.EMPTY);
-
-        if (exOrder.isRelatedSubAccount()) {
-            if (OrderSide.BUY == exOrder.getSide()) {
-                transD.setFromSubType(exOrder.getBaseSubaccountType());
-            } else {
-                transD.setToSubType(exOrder.getBaseSubaccountType());
-            }
+        if (ask.isRelatedSubAccount()) {
+            transD.setToSubType(ask.getBaseSubaccountType());
+        }
+        if (bid.isRelatedSubAccount()) {
+            transD.setFromSubType(bid.getBaseSubaccountType());
         }
         return transD.build();
     }

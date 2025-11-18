@@ -1,7 +1,9 @@
 package io.xrex.dto.event;
 
 import com.fasterxml.jackson.annotation.JsonFormat;
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 import io.xrex.persistence.entity.ExTradeEntity;
+import io.xrex.util.BigDecimalToStringSerializer;
 import io.xrex.util.XrexConstant;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -16,14 +18,18 @@ import java.time.LocalDateTime;
 @NoArgsConstructor
 @AllArgsConstructor
 public class ExTradeDto {
+    @JsonSerialize(using = BigDecimalToStringSerializer.class)
     private BigDecimal price;
+    @JsonSerialize(using = BigDecimalToStringSerializer.class)
     private BigDecimal volume;
     private Long bidId;
     private Long askId;
     private String trendSide;
     private Integer bidUserId;
     private Integer askUserId;
+    @JsonSerialize(using = BigDecimalToStringSerializer.class)
     private BigDecimal buyFee;
+    @JsonSerialize(using = BigDecimalToStringSerializer.class)
     private BigDecimal sellFee;
     private String buyFeeCoin;
     private String sellFeeCoin;

@@ -1,6 +1,7 @@
 package io.xrex.controller;
 
 import io.grpc.stub.StreamObserver;
+import io.xrex.dto.PairConfigDto;
 import io.xrex.dto.event.ExTradeDto;
 import io.xrex.dto.event.TradeEventDto;
 import io.xrex.enums.*;
@@ -9,6 +10,7 @@ import io.xrex.persistence.entity.ExOrderEntity;
 import io.xrex.persistence.entity.ExTradeEntity;
 import io.xrex.persistence.repository.ExOrderDao;
 import io.xrex.persistence.repository.ExTradeDao;
+import io.xrex.service.ConfigService;
 import io.xrex.service.grpc.TransferGrpcService;
 import io.xrex.util.UUIDv7Generator;
 import lombok.RequiredArgsConstructor;
@@ -33,6 +35,7 @@ import java.util.concurrent.ThreadLocalRandom;
 public class TestController {
 
     private final TransferGrpcService transferGrpcService;
+    private final ConfigService configService;
     private final KafkaTemplate<String, TradeEventDto> testKafkaTemplate;
     private final ExTradeDao exTradeDao;
     private final ExOrderDao exOrderDao;
@@ -81,11 +84,17 @@ public class TestController {
     }
 
     @PostMapping("/api/v1/test_trade")
-    public void test() throws InterruptedException {
-        String orderTable = "ex_order_btcusdt";
-        String tradeTable = "ex_trade_btcusdt";
+    public void testTrade() {
+        String base = "btc";
+        String quote = "twd";
+        String pair = base + quote;
+        Integer fromType = 2011013;
+        Integer toType = 2021013;
+
+        String orderTable = "ex_order_" + pair;
+        String tradeTable = "ex_trade_" + pair;
         Integer chainupId = 19914;
-        BigDecimal spendMoney = new BigDecimal("100");
+        BigDecimal spendMoney = new BigDecimal("1000");
         LocalDateTime now = LocalDateTime.now();
         ExOrderEntity marketOrder = ExOrderEntity.builder()
                 .userId(chainupId).side(OrderSide.BUY)
@@ -99,9 +108,9 @@ public class TestController {
 
         List<TransferRequest> requests = new ArrayList<>();
         TransferRequest request = TransferRequest.newBuilder()
-                .setFromUid(chainupId).setFromType(201106).setToUid(chainupId).setToType(202106)
+                .setFromUid(chainupId).setFromType(fromType).setToUid(chainupId).setToType(toType)
                 .setAmount(spendMoney.toPlainString()).setScene(TransactionScene.CREATE_ORDER.value).setMeta("0")
-                .setRefType(orderTable).setRefId(orderId).setOpUid(1).setOpIp("127.0.0.1")
+                .setRefType(orderTable).setRefId(orderId).setOpUid(chainupId).setOpIp(StringUtils.EMPTY)
                 .build();
         requests.add(request);
         TransferListRequest listRequest = TransferListRequest.newBuilder().addAllRequests(requests).setRequestId(UUIDv7Generator.generate()).build();
@@ -111,30 +120,37 @@ public class TestController {
 
         ExTradeEntity latestTrade = exTradeDao.findLatestTrade(tradeTable);
 
-        BigDecimal volume = spendMoney.divide(latestTrade.getPrice(), 6, RoundingMode.DOWN);
+        PairConfigDto pairConfig = configService.findPairConfigByPair(pair);
+        BigDecimal minQuoteAmount = pairConfig.getMinQuoteAmount();
+        BigDecimal volume = spendMoney.divide(latestTrade.getPrice(), 8, RoundingMode.DOWN);
+        BigDecimal dealMoney = volume.multiply(latestTrade.getPrice());
+        while ((spendMoney.subtract(dealMoney)).compareTo(minQuoteAmount) > 0) {
+            volume = volume.add(pairConfig.getMinBaseAmount());
+            dealMoney = volume.multiply(latestTrade.getPrice());
+        }
         BigDecimal fee = volume.multiply(new BigDecimal("0.001"));
         TradeEventDto tradeEventDto = TradeEventDto.builder()
-                .pair(orderTable.replace("ex_order_", StringUtils.EMPTY))
+                .pair(pair)
                 .orderId(orderId)
                 .chainupId(chainupId)
                 .orderSide(marketOrder.getSide())
                 .trade(ExTradeDto.builder()
                         .price(latestTrade.getPrice())
-                        .volume(volume.subtract(fee))
+                        .volume(volume)
                         .bidId(orderId)
                         .askId(0L)
-                        .trendSide("BUY")
+                        .trendSide(marketOrder.getSide().value)
                         .bidUserId(chainupId)
                         .askUserId(mmChainupId)
                         .buyFee(fee)
                         .sellFee(BigDecimal.ZERO)
-                        .buyFeeCoin("BTC")
-                        .sellFeeCoin("USDT")
+                        .buyFeeCoin(base.toUpperCase())
+                        .sellFeeCoin(quote.toUpperCase())
                         .ctime(now).mtime(now)
                         .buyType(OrderLeverType.NORMAL_ORDER.value)
                         .sellType(OrderLeverType.MARKET_MAKING_ORDER.value)
-                        .build()).build();
-
+                        .build())
+                .eventTime(LocalDateTime.now()).build();
         testKafkaTemplate.send(tradeEventTopic, "ex_trade_btcusdt", tradeEventDto);
     }
 

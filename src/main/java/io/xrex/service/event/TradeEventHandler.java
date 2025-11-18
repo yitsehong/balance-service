@@ -42,6 +42,7 @@ public class TradeEventHandler {
             for (ConsumerRecord<String, TradeEventDto> record : records) {
                 long start = System.currentTimeMillis();
                 TradeEventDto tradeEvent = record.value();
+                log.info("[handleTradeEventTransfer] tradeEvent={}", tradeEvent);
                 TransferListRequest transferListRequest = tradeTransferService.handleTradeTransfer(tradeEvent);
                 transferGrpcService.transfer(transferListRequest, responseObserver);
                 log.info("Transfer to {} completed in {} ms", tradeEvent, System.currentTimeMillis() - start);

@@ -71,7 +71,7 @@ public class BalanceStateMachine extends BaseStateMachine {
     private RocksDB db;
     private File dbDir;
     private RaftGroupId groupId;
-    @Value("${app.kafka.balance-transfer.topic}")
+    @Value("${app.kafka.transfer-persistence-event.topic}")
     private String topic;
 
     @Value("${raft.state-machine.max-in-flight-requests:3000}")

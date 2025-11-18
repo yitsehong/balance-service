@@ -12,6 +12,7 @@ import io.xrex.persistence.repository.ConfigCoinSymbolRepository;
 import io.xrex.persistence.repository.ConfigSymbolRepository;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -27,6 +28,7 @@ import static io.xrex.util.XrexConstant.SYSTEM_CHAINUP_ID;
  * It uses Caffeine caches to store frequently accessed configuration data in memory, reducing database load.
  * The caches are populated at startup and are refreshed as needed.
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class ConfigService {
@@ -74,14 +76,15 @@ public class ConfigService {
                     .minBaseAmount(BigDecimal.ONE.movePointLeft(c.getVolumePre()))
                     .minQuoteAmount(BigDecimal.ONE.movePointLeft(c.getPricePre()))
                     .build();
-
             List<ConfigAccountTypeEntity> baseAccountTypes = coinConfigAccountTypeMap.get(base);
             pairConfig.setBaseAccountNormal(findAccountType(baseAccountTypes, AssetType_A_BC.U_NORMAL));
             pairConfig.setBaseAccountLock(findAccountType(baseAccountTypes, AssetType_A_BC.U_LOCK));
             Integer baseMmAccount = findAccountType(baseAccountTypes, AssetType_A_BC.U_MM_NORMAL);
             pairConfig.setBaseMmAccountNormal(baseMmAccount);
             pairConfig.setBaseMmAccountLock(baseMmAccount);
-            pairConfig.setSysBaseAccount(coinPairConfigAccountTypeMap.get(base).get(pair).getAssetType());
+            if (coinPairConfigAccountTypeMap.containsKey(base) && coinPairConfigAccountTypeMap.get(base).containsKey(pair)) {
+                pairConfig.setSysBaseAccount(coinPairConfigAccountTypeMap.get(base).get(pair).getAssetType());
+            }
 
             List<ConfigAccountTypeEntity> quoteAccountTypes = coinConfigAccountTypeMap.get(quote);
             pairConfig.setQuoteAccountNormal(findAccountType(quoteAccountTypes, AssetType_A_BC.U_NORMAL));
@@ -89,8 +92,9 @@ public class ConfigService {
             Integer quoteMmAccount = findAccountType(quoteAccountTypes, AssetType_A_BC.U_MM_NORMAL);
             pairConfig.setQuoteMmAccountNormal(quoteMmAccount);
             pairConfig.setQuoteMmAccountLock(quoteMmAccount);
-            pairConfig.setSysQuoteAccount(coinPairConfigAccountTypeMap.get(quote).get(pair).getAssetType());
-
+            if (coinPairConfigAccountTypeMap.containsKey(quote) && coinPairConfigAccountTypeMap.get(quote).containsKey(pair)) {
+                pairConfig.setSysQuoteAccount(coinPairConfigAccountTypeMap.get(quote).get(pair).getAssetType());
+            }
             pairConfigCache.put(pairConfig.getPair(), pairConfig);
         }
     }
