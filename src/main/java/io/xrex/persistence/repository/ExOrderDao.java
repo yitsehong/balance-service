@@ -103,6 +103,7 @@ public class ExOrderDao {
                 "quote_subaccount_type, base_account_type, base_subaccount_type, margin_trade_id, margin_direction, bot_id) " +
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) " +
                 "ON DUPLICATE KEY UPDATE " +
+                "status = VALUES(status), " +
                 "deal_volume = VALUES(deal_volume), " +
                 "deal_money = VALUES(deal_money), " +
                 "avg_price = VALUES(avg_price), " +
@@ -151,9 +152,23 @@ public class ExOrderDao {
         });
     }
 
+    public int updateStatus(Long id, OrderStatus newStatus, String tableName) {
+        isValidTableName(tableName);
+        String sql = "UPDATE " + tableName + " SET status = ?, mtime = ? WHERE id = ?  AND status IN (0,1,3)";
+        return jdbcTemplate.update(sql, newStatus.value, Timestamp.valueOf(java.time.LocalDateTime.now()), id);
+    }
+
+    public int batchUpdateCancelStatus(List<Long> ids, OrderStatus newStatus, String tableName) {
+        isValidTableName(tableName);
+        String inClause = String.join(",", java.util.Collections.nCopies(ids.size(), "?"));
+        String sql = "UPDATE " + tableName + " SET status = ?, mtime = ? WHERE id IN (" + inClause + ") AND status = 5";
+        return jdbcTemplate.update(sql, newStatus.value, Timestamp.valueOf(java.time.LocalDateTime.now()), ids.toArray());
+    }
+
     private void isValidTableName(String tableName) {
         if (tableName == null || !tableName.matches("^ex_order_[a-zA-Z0-9_]+$")) {
             throw new IllegalArgumentException("Invalid table name");
         }
     }
+
 }

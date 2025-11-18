@@ -9,6 +9,7 @@ public enum TransactionScene {
     WITHDRAW("withdraw", "fund.transaction.scene.withdraw", "提现中"),
     WITHDRAW_CNACEL("withdraw_cnacel", "fund.transaction.scene.withdraw.cnacel", "取消提现"),
     CREATE_ORDER("create_order", "fund.transaction.scene.create.order", "下单"),
+    CANCEL_TRADE("cancel_trade", "fund.transaction.scene.cancel.trade", "撤销订单"),
     CANCEL_ORDER("cancel_order", "fund.transaction.scene.cancel.order", "撤销订单"),
     PRESENT_COIN("present_coin", "fund.transaction.scene.present", "赠币"),
     CANCEL_EXPIRED_ORDER("cancel_expired_order", "", "撤销异常订单"),

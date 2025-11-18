@@ -79,10 +79,14 @@ app:
       topic: t.balance-service.balance-transfer
       group: g.balance-service.balance-transfer
       max-poll-records: 500
-    order-change-event:
-      topic: t.balance-service.order-change-event
-      group: g.balance-service.order-change-event
-      max-poll-records: 500
+    trade-event:
+      topic: t.balance-service.trade-event
+      group: g.balance-service.trade-event
+      max-poll-records: 100
+    cancel-order-event:
+      topic: t.balance-service.cancel-order-event
+      group: g.balance-service.cancel-order-event
+      max-poll-records: 1000
 
 balance-service:
   fee-chainup-id: 1001

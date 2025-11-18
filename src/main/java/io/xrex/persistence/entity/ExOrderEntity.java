@@ -105,4 +105,53 @@ public class ExOrderEntity {
     public BigDecimal getUnfilledQuantity() {
         return this.volume.subtract(this.dealVolume);
     }
+
+    @JsonIgnore
+    public boolean isMarginOrder() {
+        return this.orderType == OrderLeverType.MARGIN_ORDER;
+    }
+
+    @JsonIgnore
+    public boolean isGridOrder() {
+        return this.orderType == OrderLeverType.GRID_ORDER;
+    }
+
+    @JsonIgnore
+    public boolean isGridMarginOrder() {
+        return this.orderType == OrderLeverType.GRID_MARGIN_ORDER;
+    }
+
+    @JsonIgnore
+    public boolean isConvertOrder() {
+        return this.orderType == OrderLeverType.CONVERT_ORDER;
+    }
+
+    @JsonIgnore
+    public BigDecimal getRemainAmount() {
+        BigDecimal remainAmount;
+        if (this.isMarketOrder() && this.isInnerFeeDeduct()) {
+            if (this.side == OrderSide.BUY) {
+                remainAmount = this.volume.subtract(this.dealMoney);
+            } else {
+                remainAmount = this.volume.subtract(this.dealVolume);
+            }
+        } else if (this.isMarketOrder() && this.isOuterFeeDeduct()) {
+            if (this.side == OrderSide.BUY) {
+                remainAmount = this.lockedAmount.subtract(this.dealMoney).subtract(this.fee);
+            } else {
+                remainAmount = this.getUnfilledQuantity();
+            }
+        } else {
+            if (this.side == OrderSide.BUY) {
+                if (this.isInnerFeeDeduct()) {
+                    remainAmount = this.price.multiply(this.volume).subtract(this.dealMoney);
+                } else {
+                    remainAmount = this.lockedAmount.subtract(this.dealMoney).subtract(this.fee);
+                }
+            } else {
+                remainAmount = this.getUnfilledQuantity();
+            }
+        }
+        return remainAmount;
+    }
 }

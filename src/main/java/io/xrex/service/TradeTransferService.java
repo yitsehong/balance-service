@@ -2,25 +2,27 @@ package io.xrex.service;
 
 import io.xrex.dto.PairConfigDto;
 import io.xrex.dto.event.TradeEventDto;
-import io.xrex.enums.OrderLeverType;
-import io.xrex.enums.OrderSide;
-import io.xrex.enums.TransactionScene;
+import io.xrex.enums.*;
 import io.xrex.grpc.TransferListRequest;
 import io.xrex.grpc.TransferRequest;
+import io.xrex.persistence.entity.ConfigAccountTypeEntity;
 import io.xrex.persistence.entity.ExOrderEntity;
 import io.xrex.persistence.entity.ExTradeEntity;
+import io.xrex.persistence.repository.ConfigAccountTypeRepository;
 import io.xrex.persistence.repository.ExOrderDao;
 import io.xrex.persistence.repository.ExTradeDao;
 import io.xrex.util.UUIDv7Generator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.tuple.Pair;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -38,8 +40,10 @@ public class TradeTransferService {
     private Integer mmChainupId;
 
     private final ConfigService configService;
+
     private final ExOrderDao exOrderDao;
     private final ExTradeDao exTradeDao;
+    private final ConfigAccountTypeRepository configAccountTypeRepository;
 
     @Transactional
     public TransferListRequest handleTradeTransfer(TradeEventDto tradeEvent) {
@@ -59,8 +63,8 @@ public class TradeTransferService {
             counterExOrder = exOrderEntityList.stream().filter(o -> !tradeEvent.getOrderId().equals(o.getId())).findFirst().orElse(null);
         }
 
-        updateOrder(exTrade, exOrder);
-        updateOrder(exTrade, counterExOrder);
+        updateOrder(exTrade, exOrder, pairConfig);
+        updateOrder(exTrade, counterExOrder, pairConfig);
         orders.add(exOrder);
         orders.add(counterExOrder);
 
@@ -73,10 +77,13 @@ public class TradeTransferService {
         requests.add(baseAmountTransfer(exTrade, exOrder, pairConfig));
         requests.add(sellFeeTransfer(exTrade, exOrder, pairConfig));
         requests.add(buyFeeTransfer(exTrade, exOrder, pairConfig));
+
+        handleRemainMoney(exOrder, pairConfig, requests);
+        handleRemainMoney(counterExOrder, pairConfig, requests);
         return TransferListRequest.newBuilder().addAllRequests(requests).setRequestId(UUIDv7Generator.generate()).build();
     }
 
-    private void updateOrder(ExTradeEntity exTrade, ExOrderEntity exOrder) {
+    private void updateOrder(ExTradeEntity exTrade, ExOrderEntity exOrder, PairConfigDto pairConfig) {
         if (exOrder == null) {
             return;
         }
@@ -92,6 +99,48 @@ public class TradeTransferService {
         // 平均成交价
         BigDecimal orderAvgPrice = exOrder.getDealMoney().divide(exOrder.getDealVolume(), 12, RoundingMode.HALF_EVEN);
         exOrder.setAvgPrice(orderAvgPrice);
+        if (!exOrder.isMarketOrder()) {
+            exOrder.setStatus(exOrder.isFilled(pairConfig) ? OrderStatus.FILLED : OrderStatus.PART_FILLED);
+        }
+        exOrder.setMtime(LocalDateTime.now());
+    }
+
+    private void handleRemainMoney(ExOrderEntity exOrder, PairConfigDto pairConfig, List<TransferRequest> requests) {
+        if (exOrder == null) {
+            return;
+        }
+
+        if (exOrder.isMarginOrder()) {
+            if (exOrder.isFilled(pairConfig)) {
+                exOrderDao.updateStatus(exOrder.getId(), OrderStatus.FILLED, pairConfig.getOrderTable());
+            }
+            return;
+        }
+
+        if (!exOrder.isFilled(pairConfig)) {
+            return;
+        }
+
+        BigDecimal remainAmount = exOrder.getRemainAmount();
+        if (remainAmount.compareTo(BigDecimal.ZERO) > 0) {
+            Pair<Integer, Integer> remainAccountTypes = getRemainAccountTypes(exOrder, pairConfig);
+            TransferRequest.Builder trans = TransferRequest.newBuilder()
+                    .setFromUid(exOrder.getUserId()).setFromType(remainAccountTypes.getLeft())
+                    .setToUid(exOrder.getUserId()).setToType(remainAccountTypes.getRight())
+                    .setAmount(remainAmount.toPlainString())
+                    .setRefType(pairConfig.getOrderTable())
+                    .setRefId(exOrder.getId())
+                    .setMeta(getRemainMeta(exOrder))
+                    .setScene(TransactionScene.CANCEL_TRADE.value)
+                    .setOpUid(SYSTEM_CHAINUP_ID)
+                    .setOpIp(StringUtils.EMPTY);
+            if (exOrder.isRelatedSubAccount()) {
+                String subAccountType = OrderSide.BUY == exOrder.getSide() ? exOrder.getQuoteSubaccountType() : exOrder.getBaseSubaccountType();
+                trans.setFromSubType(subAccountType);
+                trans.setToSubType(subAccountType);
+            }
+            requests.add(trans.build());
+        }
     }
 
     private TransferRequest quoteAmountTransfer(ExTradeEntity exTradeEntity, ExOrderEntity exOrder, PairConfigDto pairConfig) {
@@ -254,5 +303,70 @@ public class TradeTransferService {
                 exTrade.getBuyFeeCoin() : exTrade.getSellFeeCoin();
         return feeCoin.equalsIgnoreCase(pairConfig.getQuote()) ?
                 "trade.transfer.quoteFeeAmount." + feeCoin : "trade.transfer.baseFeeAmount." + feeCoin;
+    }
+
+    private String getRemainMeta(ExOrderEntity exOrder) {
+        String meta;
+        if (exOrder.getSide() == OrderSide.BUY) {
+            if (exOrder.isMarketOrder()) {
+                meta = "order.unlock.returnMarketOrderQuoteAmount";
+            } else {
+                meta = "order.unlock.remainQuoteAmount";
+            }
+        } else {
+            if (exOrder.isMarketOrder()) {
+                meta = "order.unlock.returnMarketOrderBaseAmount";
+            } else {
+                meta = "order.unlock.remainBaseAmount";
+            }
+        }
+        return meta;
+    }
+
+    private Pair<Integer, Integer> getRemainAccountTypes(ExOrderEntity exOrder, PairConfigDto pairConfig) {
+        Integer fromType;
+        Integer toType;
+        if (OrderSide.BUY == exOrder.getSide()) {
+            if (exOrder.isGridOrder() || exOrder.isGridMarginOrder()) {
+                // Grid or Grid Margin
+                fromType = exOrder.getQuoteAccountType();
+                AssetType_A_BC assetType = exOrder.isGridOrder() ? AssetType_A_BC.U_GRID_NORMAL : AssetType_A_BC.U_GRID_MARGIN_NORMAL;
+
+                String quoteCoin = "'" + pairConfig.getQuote().toUpperCase() + "'";
+                ConfigAccountTypeEntity configAccountType = configAccountTypeRepository.findByAssetAAndAssetBcAndCoinSymbol(assetType.account_A,
+                        assetType.account_BC, quoteCoin);
+                toType = configAccountType.getAssetType();
+            } else if (exOrder.isMarginOrder()) {
+                fromType = exOrder.getQuoteAccountType();
+                toType = pairConfig.getQuoteAccountNormal();
+            } else if (exOrder.isConvertOrder() && exOrder.getQuoteAccountType() != null) {
+                fromType = exOrder.getQuoteAccountType();
+                toType = pairConfig.getQuoteAccountNormal();
+            } else {
+                fromType = pairConfig.getQuoteAccountLock();
+                toType = pairConfig.getQuoteAccountNormal();
+            }
+        } else {
+            if (exOrder.isGridOrder() || exOrder.isGridMarginOrder()) {
+                // Grid
+                fromType = exOrder.getBaseAccountType();
+                AssetType_A_BC assetType = exOrder.isGridOrder() ? AssetType_A_BC.U_GRID_NORMAL : AssetType_A_BC.U_GRID_MARGIN_NORMAL;
+
+                String baseCoin = "'" + pairConfig.getBase().toUpperCase() + "'";
+                ConfigAccountTypeEntity configAccountType = configAccountTypeRepository.findByAssetAAndAssetBcAndCoinSymbol(assetType.account_A,
+                        assetType.account_BC, baseCoin);
+                toType = configAccountType.getAssetType();
+            } else if (exOrder.isMarginOrder()) {
+                fromType = exOrder.getBaseAccountType();
+                toType = pairConfig.getBaseAccountNormal();
+            } else if (exOrder.isConvertOrder() && exOrder.getBaseAccountType() != null) {
+                fromType = exOrder.getBaseAccountType();
+                toType = pairConfig.getBaseAccountNormal();
+            } else {
+                fromType = pairConfig.getBaseAccountLock();
+                toType = pairConfig.getBaseAccountNormal();
+            }
+        }
+        return Pair.of(fromType, toType);
     }
 }

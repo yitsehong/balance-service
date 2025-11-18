@@ -1,5 +1,6 @@
 package io.xrex.config;
 
+import io.xrex.dto.event.CancelOrderEventDto;
 import io.xrex.dto.event.TradeEventDto;
 import io.xrex.dto.event.TransactionEventDto;
 import org.apache.commons.lang3.StringUtils;
@@ -27,8 +28,10 @@ public class KafkaConsumerConfig {
     private String bootstrapServers;
     @Value("${app.kafka.transfer-persistence-event.max-poll-records}")
     private Integer transferPersistenceEventMaxPollRecords;
-    @Value("${app.kafka.order-change-event.max-poll-records}")
-    private Integer orderChangeEventMaxPollRecords;
+    @Value("${app.kafka.trade-event.max-poll-records}")
+    private Integer tradeEventMaxPollRecords;
+    @Value("${app.kafka.cancel-order-event.max-poll-records}")
+    private Integer cancelOrderEventMaxPollRecords;
     @Value("${spring.kafka.properties.security.protocol}")
     private String securityProtocol;
     @Value("${spring.kafka.properties.sasl.mechanism}")
@@ -51,12 +54,26 @@ public class KafkaConsumerConfig {
     }
 
     @Bean
-    public ConcurrentKafkaListenerContainerFactory<String, TradeEventDto> orderChangeEventFactory() {
+    public ConcurrentKafkaListenerContainerFactory<String, TradeEventDto> tradeEventFactory() {
         Map<String, Object> props = buildCommonProperties();
         props.put(JsonDeserializer.VALUE_DEFAULT_TYPE, TradeEventDto.class.getName());
-        props.put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, orderChangeEventMaxPollRecords);
+        props.put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, tradeEventMaxPollRecords);
 
         ConcurrentKafkaListenerContainerFactory<String, TradeEventDto> factory = new ConcurrentKafkaListenerContainerFactory<>();
+        factory.setConsumerFactory(new DefaultKafkaConsumerFactory<>(props));
+        factory.setBatchListener(true); // Enable batch listening
+        factory.getContainerProperties().setAckMode(ContainerProperties.AckMode.MANUAL);
+        factory.setCommonErrorHandler(new DefaultErrorHandler(new FixedBackOff(1000L, 3L)));
+        return factory;
+    }
+
+    @Bean
+    public ConcurrentKafkaListenerContainerFactory<String, CancelOrderEventDto> cancelOrderEventFactory() {
+        Map<String, Object> props = buildCommonProperties();
+        props.put(JsonDeserializer.VALUE_DEFAULT_TYPE, CancelOrderEventDto.class.getName());
+        props.put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, cancelOrderEventMaxPollRecords);
+
+        ConcurrentKafkaListenerContainerFactory<String, CancelOrderEventDto> factory = new ConcurrentKafkaListenerContainerFactory<>();
         factory.setConsumerFactory(new DefaultKafkaConsumerFactory<>(props));
         factory.setBatchListener(true); // Enable batch listening
         factory.getContainerProperties().setAckMode(ContainerProperties.AckMode.MANUAL);

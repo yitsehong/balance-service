@@ -23,9 +23,6 @@ public class TradeEventDto {
     private Integer chainupId;
     private Integer counterPartyChainupId;
     private OrderSide orderSide;
-    private Byte orderType;
-    private Boolean isCancelled;
-    private TradeType tradeType;
     private ExTradeDto trade;
 
     @JsonIgnore
