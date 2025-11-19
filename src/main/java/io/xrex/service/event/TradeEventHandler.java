@@ -43,8 +43,7 @@ public class TradeEventHandler {
                 long start = System.currentTimeMillis();
                 TradeEventDto tradeEvent = record.value();
                 log.info("[handleTradeEventTransfer] tradeEvent={}", tradeEvent);
-                TransferListRequest transferListRequest = tradeTransferService.handleTradeTransfer(tradeEvent);
-                transferGrpcService.transfer(transferListRequest, responseObserver);
+                tradeTransferService.handleTradeTransfer(tradeEvent, responseObserver);
                 log.info("Transfer to {} completed in {} ms", tradeEvent, System.currentTimeMillis() - start);
             }
         } catch (Exception e) {
@@ -95,12 +94,12 @@ public class TradeEventHandler {
         return new StreamObserver<>() {
             @Override
             public void onNext(TransferResponse value) {
-                //log.info("Test transfer submitted to Raft: {}", value.getMessage());
+                log.info("[TradeEventHandler.handleTradeEventTransfer] transfer submitted to Raft: code={}, response={}", value.getCode(), value.getData());
             }
 
             @Override
             public void onError(Throwable t) {
-                log.error("Test transfer error", t);
+                log.error("TradeEventHandler.handleTradeEventTransfer] transfer submitted error", t);
             }
 
             @Override

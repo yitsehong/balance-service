@@ -1,16 +1,19 @@
 package io.xrex.service;
 
+import io.grpc.stub.StreamObserver;
 import io.xrex.dto.PairConfigDto;
 import io.xrex.dto.event.TradeEventDto;
 import io.xrex.enums.*;
 import io.xrex.grpc.TransferListRequest;
 import io.xrex.grpc.TransferRequest;
+import io.xrex.grpc.TransferResponse;
 import io.xrex.persistence.entity.ConfigAccountTypeEntity;
 import io.xrex.persistence.entity.ExOrderEntity;
 import io.xrex.persistence.entity.ExTradeEntity;
 import io.xrex.persistence.repository.ConfigAccountTypeRepository;
 import io.xrex.persistence.repository.ExOrderDao;
 import io.xrex.persistence.repository.ExTradeDao;
+import io.xrex.service.grpc.TransferGrpcService;
 import io.xrex.util.UUIDv7Generator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -41,13 +44,14 @@ public class TradeTransferService {
     private Integer mmChainupId;
 
     private final ConfigService configService;
+    private final TransferGrpcService transferGrpcService;
 
     private final ExOrderDao exOrderDao;
     private final ExTradeDao exTradeDao;
     private final ConfigAccountTypeRepository configAccountTypeRepository;
 
     @Transactional
-    public TransferListRequest handleTradeTransfer(TradeEventDto tradeEvent) {
+    public void handleTradeTransfer(TradeEventDto tradeEvent, StreamObserver<TransferResponse> responseObserver) {
         PairConfigDto pairConfig = configService.findPairConfigByPair(tradeEvent.getPair());
         ExTradeEntity exTrade = tradeEvent.getTrade().toEntity();
 
@@ -82,9 +86,14 @@ public class TradeTransferService {
         requests.add(sellFeeTransfer(exTrade, bid, ask, pairConfig));
         requests.add(buyFeeTransfer(exTrade, bid, ask, pairConfig));
 
+        TransferListRequest tradeTransferListRequest = TransferListRequest.newBuilder().addAllRequests(requests).setRequestId(UUIDv7Generator.generate()).build();
+        transferGrpcService.transfer(tradeTransferListRequest, responseObserver);
+        requests.clear();
+
         handleRemainMoney(bid, pairConfig, requests);
         handleRemainMoney(ask, pairConfig, requests);
-        return TransferListRequest.newBuilder().addAllRequests(requests).setRequestId(UUIDv7Generator.generate()).build();
+        TransferListRequest remainReturnTransferListRequest = TransferListRequest.newBuilder().addAllRequests(requests).setRequestId(UUIDv7Generator.generate()).build();
+        transferGrpcService.transfer(remainReturnTransferListRequest, responseObserver);
     }
 
     private void updateOrder(ExTradeEntity exTrade, ExOrderEntity exOrder, PairConfigDto pairConfig, LocalDateTime handleTime) {
