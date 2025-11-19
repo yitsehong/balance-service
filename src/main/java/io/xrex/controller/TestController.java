@@ -1,7 +1,6 @@
 package io.xrex.controller;
 
 import io.grpc.stub.StreamObserver;
-import io.xrex.dto.PairConfigDto;
 import io.xrex.dto.event.ExTradeDto;
 import io.xrex.dto.event.TradeEventDto;
 import io.xrex.enums.*;
@@ -10,7 +9,6 @@ import io.xrex.persistence.entity.ExOrderEntity;
 import io.xrex.persistence.entity.ExTradeEntity;
 import io.xrex.persistence.repository.ExOrderDao;
 import io.xrex.persistence.repository.ExTradeDao;
-import io.xrex.service.ConfigService;
 import io.xrex.service.grpc.TransferGrpcService;
 import io.xrex.util.UUIDv7Generator;
 import lombok.RequiredArgsConstructor;
@@ -35,7 +33,6 @@ import java.util.concurrent.ThreadLocalRandom;
 public class TestController {
 
     private final TransferGrpcService transferGrpcService;
-    private final ConfigService configService;
     private final KafkaTemplate<String, TradeEventDto> testKafkaTemplate;
     private final ExTradeDao exTradeDao;
     private final ExOrderDao exOrderDao;
@@ -121,17 +118,10 @@ public class TestController {
 
             transferGrpcService.transfer(listRequest, responseObserver);
 
-            PairConfigDto pairConfig = configService.findPairConfigByPair(pair);
             BigDecimal volume = spendMoney.divide(latestTrade.getPrice(), 10, RoundingMode.DOWN);
-            BigDecimal dealMoney = volume.multiply(latestTrade.getPrice());
-            log.info("test deal_money={}", dealMoney);
 
-            BigDecimal fee = volume.multiply(feeRate);
             TradeEventDto tradeEventDto = TradeEventDto.builder()
                     .pair(pair)
-                    .orderId(orderId)
-                    .chainupId(chainupId)
-                    .orderSide(marketOrder.getSide())
                     .trade(ExTradeDto.builder()
                             .price(latestTrade.getPrice())
                             .volume(volume)
@@ -140,16 +130,16 @@ public class TestController {
                             .trendSide(marketOrder.getSide().value)
                             .bidUserId(chainupId)
                             .askUserId(mmChainupId)
-                            .buyFee(fee)
+                            .buyFee(BigDecimal.ZERO)
                             .sellFee(BigDecimal.ZERO)
-                            .buyFeeCoin(base.toUpperCase())
-                            .sellFeeCoin(quote.toUpperCase())
+                            .buyFeeCoin(null)
+                            .sellFeeCoin(null)
                             .ctime(now).mtime(now)
                             .buyType(OrderLeverType.NORMAL_ORDER.value)
                             .sellType(OrderLeverType.MARKET_MAKING_ORDER.value)
                             .build())
                     .eventTime(LocalDateTime.now()).build();
-            testKafkaTemplate.send(tradeEventTopic, tradeTable + "-" + orderId, tradeEventDto);
+            testKafkaTemplate.send(tradeEventTopic, tradeTable, tradeEventDto);
         }
 
     }

@@ -39,51 +39,22 @@ public class TradeEventHandler {
         }
 
         try {
-            // Step 1: Group all events by orderId.
-            Map<String, List<TradeEventDto>> eventsByOrderId = new HashMap<>();
+            Map<String, List<ExTradeDto>> eventsByPair = new HashMap<>();
             for (ConsumerRecord<String, TradeEventDto> record : records) {
-                eventsByOrderId.computeIfAbsent(record.key(), k -> new ArrayList<>()).add(record.value());
+                eventsByPair.computeIfAbsent(record.value().getPair(), _ -> new ArrayList<>()).add(record.value().getTrade());
             }
 
-            // Step 2: Aggregate trades for each orderId into a single event.
-            List<TradeEventDto> aggregatedEvents = new ArrayList<>();
-            for (Map.Entry<String, List<TradeEventDto>> entry : eventsByOrderId.entrySet()) {
-                List<TradeEventDto> group = entry.getValue();
-                if (group.isEmpty()) {
+            List<CompletableFuture<Void>> futures = new ArrayList<>();
+            for (Map.Entry<String, List<ExTradeDto>> entry : eventsByPair.entrySet()) {
+                if (entry.getValue().isEmpty()) {
                     continue;
                 }
-                // Use the first event as a template.
-                TradeEventDto masterEvent = group.getFirst();
-                List<ExTradeDto> allTrades = new ArrayList<>();
-                for (TradeEventDto event : group) {
-                    if (event.getTrades() != null) {
-                        allTrades.addAll(event.getTrades());
-                    }
-                }
 
-                // Create a new aggregated event DTO.
-                TradeEventDto aggregatedEvent = TradeEventDto.builder()
-                        .orderId(masterEvent.getOrderId())
-                        .pair(masterEvent.getPair())
-                        .chainupId(masterEvent.getChainupId())
-                        .trades(allTrades)
-                        .build();
-                aggregatedEvents.add(aggregatedEvent);
-            }
-
-            // Step 3: Concurrently process each aggregated event in a virtual thread.
-            List<CompletableFuture<Void>> futures = new ArrayList<>();
-            for (TradeEventDto aggEvent : aggregatedEvents) {
                 CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
                     try {
-                        long start = System.currentTimeMillis();
-                        // Each aggregated event for a unique orderId is processed here.
-                        tradeTransferService.handleTradeTransfer(aggEvent, buildResponseObserver());
-                        log.info("Submitted aggregated transfer for order {} with {} trades in {} ms",
-                                aggEvent.getOrderId(), aggEvent.getTrades().size(), System.currentTimeMillis() - start);
+                        tradeTransferService.handleTradeTransfer(entry.getKey(), entry.getValue(), buildResponseObserver());
                     } catch (Exception e) {
-                        log.error("Failed to process aggregated event for orderId: {}. Error: {}",
-                                aggEvent.getOrderId(), e.getMessage(), e);
+                        log.error("Failed to process aggregated event. Error: {}", e.getMessage(), e);
                     }
                 }, virtualThreadExecutor);
                 futures.add(future);
@@ -91,8 +62,7 @@ public class TradeEventHandler {
 
             // Wait for all aggregated events to complete processing.
             CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
-            log.info("All {} records processed, aggregated into {} unique orders.", records.size(), aggregatedEvents.size());
-
+            log.info("All {} records processed.", records.size());
         } catch (Exception e) {
             log.error("Failed to process trade event batch. Error: {}", e.getMessage(), e);
             // TODO: Consider sending all failed records to a dead-letter queue for manual inspection.

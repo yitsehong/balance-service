@@ -69,7 +69,7 @@ public class ExTradeDto {
         BigDecimal dealMoney = this.volume.multiply(this.price);
         return ExOrderEntity.builder()
                 .userId(mmChainupId)
-                .side(OrderSide.BUY == orderSide ? OrderSide.SELL : OrderSide.BUY)
+                .side(orderSide)
                 .price(this.price)
                 .volume(this.volume)
                 .feeDeductType(FeeDeductType.INNER)
@@ -80,7 +80,7 @@ public class ExTradeDto {
                 .dealVolume(this.volume)
                 .dealMoney(dealMoney)
                 .avgPrice(this.price)
-                .lockedAmount(OrderSide.BUY == orderSide ? this.volume : dealMoney)
+                .lockedAmount(OrderSide.BUY == orderSide ? dealMoney : this.volume)
                 .status(OrderStatus.FILLED)
                 .type(OrderType.LIMIT)
                 .source(OrderSourceType.ROBOT)

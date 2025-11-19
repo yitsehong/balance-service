@@ -3,7 +3,6 @@ package io.xrex.service;
 import io.grpc.stub.StreamObserver;
 import io.xrex.dto.PairConfigDto;
 import io.xrex.dto.event.ExTradeDto;
-import io.xrex.dto.event.TradeEventDto;
 import io.xrex.enums.*;
 import io.xrex.grpc.TransferListRequest;
 import io.xrex.grpc.TransferRequest;
@@ -51,27 +50,29 @@ public class TradeTransferService {
     private final ConfigAccountTypeRepository configAccountTypeRepository;
 
     @Transactional
-    public void handleTradeTransfer(TradeEventDto aggregateTradeEvent, StreamObserver<TransferResponse> responseObserver) {
-        PairConfigDto pairConfig = configService.findPairConfigByPair(aggregateTradeEvent.getPair());
-        for (ExTradeDto exTradeDto : aggregateTradeEvent.getTrades()) {
+    public void handleTradeTransfer(String pair, List<ExTradeDto> exTradeDtos, StreamObserver<TransferResponse> responseObserver) {
+        log.debug("handleTradeTransfer pair={}, aggregateTradeEvent={}", pair, exTradeDtos);
+        PairConfigDto pairConfig = configService.findPairConfigByPair(pair);
+        String orderTable = pairConfig.getOrderTable();
+        for (ExTradeDto exTradeDto : exTradeDtos) {
             ExTradeEntity exTrade = exTradeDto.toEntity();
-            if (OrderLeverType.MARKET_MAKING_ORDER.value == exTrade.getBuyType()
-                    || OrderLeverType.MARKET_MAKING_ORDER.value == exTrade.getSellType()) {
-                Long mmOrderId = exOrderDao.insert(exTradeDto.toMMExOrderEntity(mmChainupId, aggregateTradeEvent.getOrderSide()), pairConfig.getOrderTable());
-                if (OrderLeverType.MARKET_MAKING_ORDER.value == exTrade.getBuyType()) {
-                    exTrade.setBidId(mmOrderId);
-                } else {
-                    exTrade.setAskId(mmOrderId);
-                }
+
+            Long mmOrderId;
+            if (OrderLeverType.MARKET_MAKING_ORDER.value == exTrade.getBuyType()) {
+                mmOrderId = exOrderDao.insert(exTradeDto.toMMExOrderEntity(mmChainupId, OrderSide.BUY), orderTable);
+                exTrade.setBidId(mmOrderId);
+            } else if (OrderLeverType.MARKET_MAKING_ORDER.value == exTrade.getSellType()) {
+                mmOrderId = exOrderDao.insert(exTradeDto.toMMExOrderEntity(mmChainupId, OrderSide.SELL), orderTable);
+                exTrade.setAskId(mmOrderId);
             }
 
-            List<ExOrderEntity> exOrderEntityList = exOrderDao.findByIdIn(List.of(exTrade.getBidId(), exTrade.getAskId()), pairConfig.getOrderTable());
+            List<ExOrderEntity> exOrderEntityList = exOrderDao.findByIdIn(List.of(exTrade.getBidId(), exTrade.getAskId()), orderTable);
             ExOrderEntity bid = exOrderEntityList.stream().filter(o -> exTrade.getBidId().equals(o.getId())).findFirst().orElse(null);
             ExOrderEntity ask = exOrderEntityList.stream().filter(o -> exTrade.getAskId().equals(o.getId())).findFirst().orElse(null);
 
             updateOrder(exTrade, bid, pairConfig);
             updateOrder(exTrade, ask, pairConfig);
-            log.info("[handleTradeTransfer] bid={}, ask={}", bid, ask);
+            log.debug("[handleTradeTransfer] exTrade={}, bid={}, ask={}", exTrade, bid, ask);
 
             Long tradeId = exTradeDao.insert(exTrade, pairConfig.getTradeTable());
             exTrade.setId(tradeId);
@@ -97,8 +98,38 @@ public class TradeTransferService {
     }
 
     private void updateOrder(ExTradeEntity exTrade, ExOrderEntity exOrder, PairConfigDto pairConfig) {
-        if (exOrder == null || OrderLeverType.MARKET_MAKING_ORDER == exOrder.getOrderType()) {
+        if (exOrder == null) {
             return;
+        }
+
+        if (OrderLeverType.MARKET_MAKING_ORDER == exOrder.getOrderType()) {
+            if (OrderSide.BUY == exOrder.getSide()) {
+                exTrade.setBuyFee(BigDecimal.ZERO);
+                exTrade.setBuyFeeCoin(pairConfig.getQuote());
+            } else {
+                exTrade.setSellFee(BigDecimal.ZERO);
+                exTrade.setSellFeeCoin(pairConfig.getQuote());
+            }
+            return;
+        }
+
+        BigDecimal tradeQuoteAmount = exTrade.getVolume().multiply(exTrade.getPrice());
+        if (OrderSide.BUY == exOrder.getSide()) {
+            BigDecimal feeRate = OrderSide.BUY.value.equalsIgnoreCase(exTrade.getTrendSide()) ?
+                    BigDecimal.valueOf(exOrder.getFeeRateTaker()) : BigDecimal.valueOf(exOrder.getFeeRateMaker());
+
+            if (exOrder.isInnerFeeDeduct()) {
+                exTrade.setBuyFee(exTrade.getVolume().multiply(feeRate));
+                exTrade.setBuyFeeCoin(pairConfig.getBase());
+            } else {
+                exTrade.setBuyFee(tradeQuoteAmount.multiply(feeRate));
+                exTrade.setBuyFeeCoin(pairConfig.getQuote());
+            }
+        } else {
+            BigDecimal feeRate = OrderSide.BUY.value.equalsIgnoreCase(exTrade.getTrendSide()) ?
+                    BigDecimal.valueOf(exOrder.getFeeRateMaker()) : BigDecimal.valueOf(exOrder.getFeeRateTaker());
+            exTrade.setSellFee(tradeQuoteAmount.multiply(feeRate));
+            exTrade.setSellFeeCoin(pairConfig.getQuote());
         }
 
         BigDecimal fee = OrderSide.BUY == exOrder.getSide() ? exTrade.getBuyFee() : exTrade.getSellFee();
