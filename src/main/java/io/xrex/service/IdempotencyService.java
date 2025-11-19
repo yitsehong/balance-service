@@ -10,9 +10,7 @@ import java.util.Optional;
 /**
  * Manages idempotency for operations to prevent duplicate processing.
  * This service uses RocksDB to store a record of processed request IDs.
- * Before executing an operation, the system can check if the request has already been
- * processed. After a successful operation, a record is saved to ensure that
- * subsequent identical requests are not processed again.
+ * It provides an atomic locking mechanism to prevent race conditions in concurrent scenarios.
  */
 @Service
 @RequiredArgsConstructor
@@ -36,12 +34,36 @@ public class IdempotencyService {
     }
 
     /**
-     * Saves an idempotency record.
+     * Attempts to acquire a lock for a given request ID by creating a "PENDING" record.
+     * This method is synchronized to ensure atomicity within a single service instance.
+     *
+     * NOTE: In a distributed environment with multiple instances of this service, this
+     * `synchronized` block is NOT sufficient to guarantee global atomicity. A true distributed
+     * lock (e.g., using Redis SETNX or a database unique constraint) would be required for
+     * bulletproof protection across multiple nodes. However, this implementation significantly
+     * reduces the window for race conditions.
+     *
+     * @param requestId The unique identifier for the request.
+     * @return {@code true} if the lock was acquired (i.e., the record did not exist),
+     *         {@code false} otherwise.
+     */
+    public synchronized boolean tryLockRequest(String requestId) {
+        if (findRecord(requestId).isPresent()) {
+            return false; // Record already exists, lock failed.
+        }
+        IdempotencyRecordDto pendingRecord = new IdempotencyRecordDto("PENDING", "Request is being processed.");
+        updateRecord(requestId, pendingRecord);
+        return true;
+    }
+
+
+    /**
+     * Saves or updates an idempotency record.
      *
      * @param requestId The unique identifier for the request.
      * @param record    The IdempotencyRecordDto to save.
      */
-    public void saveRecord(String requestId, IdempotencyRecordDto record) {
+    public void updateRecord(String requestId, IdempotencyRecordDto record) {
         byte[] key = JSON.toJSONBytes(requestId);
         byte[] value = JSON.toJSONBytes(record);
         rocksDBService.saveToIdempotency(key, value);

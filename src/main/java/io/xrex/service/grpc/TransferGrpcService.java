@@ -73,6 +73,18 @@ public class TransferGrpcService extends TransferServiceGrpc.TransferServiceImpl
      * @param request The transfer request, containing a list of individual transfers.
      * @param responseObserver The observer to which the response is sent.
      */
+    private static final int IDEMPOTENCY_MAX_RETRIES = 10;
+    private static final long IDEMPOTENCY_RETRY_DELAY_MS = 200;
+
+    /**
+     * Processes a transfer request by submitting it to the Raft batch processor.
+     * This method is idempotent, meaning that submitting the same request multiple times
+     * will not result in duplicate transfers. It uses a lock-and-poll mechanism to
+     * handle concurrent requests with the same request ID.
+     *
+     * @param request The transfer request, containing a list of individual transfers.
+     * @param responseObserver The observer to which the response is sent.
+     */
     @Override
     public void transfer(TransferListRequest request, StreamObserver<TransferResponse> responseObserver) {
         final String requestId = request.getRequestId();
@@ -86,19 +98,55 @@ public class TransferGrpcService extends TransferServiceGrpc.TransferServiceImpl
         Optional<IdempotencyRecordDto> recordOpt = idempotencyService.findRecord(requestId);
         if (recordOpt.isPresent()) {
             IdempotencyRecordDto record = recordOpt.get();
-            if ("SUCCESS".equals(record.getStatus())) {
+            String status = record.getStatus();
+
+            if ("SUCCESS".equals(status)) {
+                handleCachedSuccess(requestId, record, responseObserver);
+                return;
+            }
+            if ("FAILED".equals(status)) {
+                handleCachedError(requestId, record, responseObserver);
+                return;
+            }
+            // If status is PENDING, fall through to the polling logic.
+        }
+
+        if (!idempotencyService.tryLockRequest(requestId)) {
+            // Lock failed, another thread/process is handling this request.
+            // Enter a poll loop to wait for the final result.
+            for (int i = 0; i < IDEMPOTENCY_MAX_RETRIES; i++) {
                 try {
-                    TransferResponse.Builder builder = TransferResponse.newBuilder();
-                    JsonFormat.parser().merge(record.getResponseData(), builder);
-                    responseObserver.onNext(builder.build());
-                    responseObserver.onCompleted();
+                    Thread.sleep(IDEMPOTENCY_RETRY_DELAY_MS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    responseObserver.onError(Status.CANCELLED
+                            .withDescription("Thread interrupted while waiting for idempotency result.")
+                            .asRuntimeException());
                     return;
-                } catch (Exception e) {
-                    log.error("Failed to parse cached response for requestId: {}", requestId, e);
-                    // Fall through to re-process the request if parsing fails
+                }
+
+                recordOpt = idempotencyService.findRecord(requestId);
+                if (recordOpt.isPresent()) {
+                    IdempotencyRecordDto record = recordOpt.get();
+                    if ("SUCCESS".equals(record.getStatus())) {
+                        handleCachedSuccess(requestId, record, responseObserver);
+                        return;
+                    }
+                    if ("FAILED".equals(record.getStatus())) {
+                        handleCachedError(requestId, record, responseObserver);
+                        return;
+                    }
+                    // Still PENDING, continue polling.
                 }
             }
+            // If the loop completes without a result, time out.
+            responseObserver.onError(Status.DEADLINE_EXCEEDED
+                    .withDescription("Request processing timed out after waiting for concurrent request to complete.")
+                    .asRuntimeException());
+            return;
         }
+
+        // --- Lock Acquired: We are the designated processor for this requestId ---
 
         List<CompletableFuture<String>> processingFutures = new ArrayList<>();
         for (TransferRequest grpcRequest : request.getRequestsList()) {
@@ -106,12 +154,14 @@ public class TransferGrpcService extends TransferServiceGrpc.TransferServiceImpl
         }
 
         if (processingFutures.isEmpty()) {
-            // No requests to process
             TransferResponse response = TransferResponse.newBuilder()
                     .setCode(ErrorCodes.SUCCESS.getCode())
                     .setDesc(ErrorCodes.SUCCESS.getDescription()).build();
             responseObserver.onNext(response);
             responseObserver.onCompleted();
+            // Although the request is empty, we should still clean up the PENDING record.
+            IdempotencyRecordDto emptySuccessRecord = new IdempotencyRecordDto("SUCCESS", "");
+            idempotencyService.updateRecord(requestId, emptySuccessRecord);
             return;
         }
 
@@ -119,14 +169,12 @@ public class TransferGrpcService extends TransferServiceGrpc.TransferServiceImpl
 
         allFutures.whenCompleteAsync((voidResult, throwable) -> {
             if (throwable != null) {
-                // This block now runs on a virtual thread.
-                log.error("Error processing batch transfer via Raft", throwable);
+                log.error("Error processing batch transfer via Raft for requestId: {}", requestId, throwable);
                 IdempotencyRecordDto failRecord = new IdempotencyRecordDto("FAILED", throwable.getMessage());
-                idempotencyService.saveRecord(requestId, failRecord); // Blocking I/O
+                idempotencyService.updateRecord(requestId, failRecord);
                 Status status = Status.INTERNAL.withDescription("Internal error: " + throwable.getMessage());
                 responseObserver.onError(status.asRuntimeException());
             } else {
-                // This block also runs on a virtual thread.
                 List<String> transactionIds = processingFutures.stream().map(CompletableFuture::join).toList();
 
                 TransferResponse response = TransferResponse.newBuilder()
@@ -137,16 +185,36 @@ public class TransferGrpcService extends TransferServiceGrpc.TransferServiceImpl
                 try {
                     String responseJson = JsonFormat.printer().print(response);
                     IdempotencyRecordDto successRecord = new IdempotencyRecordDto("SUCCESS", responseJson);
-                    idempotencyService.saveRecord(requestId, successRecord); // Blocking I/O
+                    idempotencyService.updateRecord(requestId, successRecord);
                 } catch (Exception e) {
                     log.error("Failed to serialize response for idempotency record, requestId: {}", requestId, e);
-                    // Continue to send response to client even if caching fails
                 }
 
                 responseObserver.onNext(response);
                 responseObserver.onCompleted();
             }
         }, virtualThreadExecutor);
+    }
+
+    private void handleCachedSuccess(String requestId, IdempotencyRecordDto record, StreamObserver<TransferResponse> responseObserver) {
+        try {
+            TransferResponse.Builder builder = TransferResponse.newBuilder();
+            JsonFormat.parser().merge(record.getResponseData(), builder);
+            responseObserver.onNext(builder.build());
+            responseObserver.onCompleted();
+        } catch (Exception e) {
+            log.error("Failed to parse cached SUCCESS response for requestId: {}", requestId, e);
+            responseObserver.onError(Status.INTERNAL
+                    .withDescription("Failed to parse cached response, please retry with a new request ID.")
+                    .asRuntimeException());
+        }
+    }
+
+    private void handleCachedError(String requestId, IdempotencyRecordDto record, StreamObserver<TransferResponse> responseObserver) {
+        log.warn("Returning cached FAILED response for requestId: {}", requestId);
+        responseObserver.onError(Status.INTERNAL
+                .withDescription("Request failed previously: " + record.getResponseData())
+                .asRuntimeException());
     }
 
     /**

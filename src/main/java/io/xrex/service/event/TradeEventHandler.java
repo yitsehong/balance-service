@@ -4,6 +4,8 @@ import io.grpc.stub.StreamObserver;
 import io.xrex.dto.CancelOrderIdDto;
 import io.xrex.dto.event.CancelOrderEventDto;
 import io.xrex.dto.event.TradeEventDto;
+import io.xrex.grpc.LedgerRequest;
+import io.xrex.grpc.LedgerResponse;
 import io.xrex.grpc.TransferListRequest;
 import io.xrex.grpc.TransferResponse;
 import io.xrex.service.OrderTransferService;
@@ -95,6 +97,24 @@ public class TradeEventHandler {
             @Override
             public void onNext(TransferResponse value) {
                 log.info("[TradeEventHandler.handleTradeEventTransfer] transfer submitted to Raft: code={}, response={}", value.getCode(), value.getData());
+                StreamObserver<LedgerResponse> responseObserver = new StreamObserver<>() {
+                    @Override
+                    public void onNext(LedgerResponse value) {
+                        log.info("[TradeEventHandler] ledger response={}", value.toString());
+                    }
+
+                    @Override
+                    public void onError(Throwable throwable) {
+
+                    }
+
+                    @Override
+                    public void onCompleted() {
+
+                    }
+                };
+                LedgerRequest ledgerRequest = LedgerRequest.newBuilder().setChainupId(19914).setType(2021013).build();
+                transferGrpcService.getLedgerFromMemory(ledgerRequest, responseObserver);
             }
 
             @Override

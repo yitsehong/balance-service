@@ -84,74 +84,75 @@ public class TestController {
     }
 
     @PostMapping("/api/v1/test_trade")
-    public void testTrade() {
+    public void testTrade(@RequestParam(value = "loop") int loop) {
         String base = "btc";
         String quote = "twd";
         String pair = base + quote;
         Integer fromType = 2011013;
         Integer toType = 2021013;
+        BigDecimal feeRate = new BigDecimal("0.001");
 
         String orderTable = "ex_order_" + pair;
         String tradeTable = "ex_trade_" + pair;
         Integer chainupId = 19914;
-        BigDecimal spendMoney = new BigDecimal("1000");
-        LocalDateTime now = LocalDateTime.now();
-        ExOrderEntity marketOrder = ExOrderEntity.builder()
-                .userId(chainupId).side(OrderSide.BUY)
-                .price(BigDecimal.ZERO).volume(spendMoney)
-                .feeDeductType(FeeDeductType.INNER).feeRateTaker(0.001d).feeRateMaker(0.001d)
-                .fee(BigDecimal.ZERO).feeCoinRate(0d).dealVolume(BigDecimal.ZERO).dealMoney(BigDecimal.ZERO).avgPrice(BigDecimal.ZERO).lockedAmount(spendMoney)
-                .status(OrderStatus.INIT).type(OrderType.MARKET).ctime(now).mtime(now).source(OrderSourceType.WEB).orderType(OrderLeverType.NORMAL_ORDER)
-                .build();
-        List<Long> orderIds = exOrderDao.batchInsert(List.of(marketOrder), orderTable);
-        Long orderId = orderIds.getFirst();
-
-        List<TransferRequest> requests = new ArrayList<>();
-        TransferRequest request = TransferRequest.newBuilder()
-                .setFromUid(chainupId).setFromType(fromType).setToUid(chainupId).setToType(toType)
-                .setAmount(spendMoney.toPlainString()).setScene(TransactionScene.CREATE_ORDER.value).setMeta("0")
-                .setRefType(orderTable).setRefId(orderId).setOpUid(chainupId).setOpIp(StringUtils.EMPTY)
-                .build();
-        requests.add(request);
-        TransferListRequest listRequest = TransferListRequest.newBuilder().addAllRequests(requests).setRequestId(UUIDv7Generator.generate()).build();
-
-        StreamObserver<TransferResponse> responseObserver = build();
-        transferGrpcService.transfer(listRequest, responseObserver);
-
         ExTradeEntity latestTrade = exTradeDao.findLatestTrade(tradeTable);
+        StreamObserver<TransferResponse> responseObserver = build();
+        for (int i = 0; i < loop; i++) {
+            BigDecimal spendMoney = new BigDecimal("1000");
+            LocalDateTime now = LocalDateTime.now();
+            ExOrderEntity marketOrder = ExOrderEntity.builder()
+                    .userId(chainupId).side(OrderSide.BUY)
+                    .price(BigDecimal.ZERO).volume(spendMoney)
+                    .feeDeductType(FeeDeductType.INNER).feeRateTaker(feeRate.doubleValue()).feeRateMaker(feeRate.doubleValue())
+                    .fee(BigDecimal.ZERO).feeCoinRate(BigDecimal.ZERO.doubleValue()).dealVolume(BigDecimal.ZERO).dealMoney(BigDecimal.ZERO).avgPrice(BigDecimal.ZERO).lockedAmount(spendMoney)
+                    .status(OrderStatus.INIT).type(OrderType.MARKET).ctime(now).mtime(now).source(OrderSourceType.WEB).orderType(OrderLeverType.NORMAL_ORDER)
+                    .build();
+            List<Long> orderIds = exOrderDao.batchInsert(List.of(marketOrder), orderTable);
+            Long orderId = orderIds.getFirst();
 
-        PairConfigDto pairConfig = configService.findPairConfigByPair(pair);
-        BigDecimal minQuoteAmount = pairConfig.getMinQuoteAmount();
-        BigDecimal volume = spendMoney.divide(latestTrade.getPrice(), 8, RoundingMode.DOWN);
-        BigDecimal dealMoney = volume.multiply(latestTrade.getPrice());
-        while ((spendMoney.subtract(dealMoney)).compareTo(minQuoteAmount) > 0) {
-            volume = volume.add(pairConfig.getMinBaseAmount());
-            dealMoney = volume.multiply(latestTrade.getPrice());
+            List<TransferRequest> requests = new ArrayList<>();
+            TransferRequest request = TransferRequest.newBuilder()
+                    .setFromUid(chainupId).setFromType(fromType).setToUid(chainupId).setToType(toType)
+                    .setAmount(spendMoney.toPlainString()).setScene(TransactionScene.CREATE_ORDER.value).setMeta("0")
+                    .setRefType(orderTable).setRefId(orderId).setOpUid(chainupId).setOpIp(StringUtils.EMPTY)
+                    .build();
+            requests.add(request);
+            TransferListRequest listRequest = TransferListRequest.newBuilder().addAllRequests(requests).setRequestId(UUIDv7Generator.generate()).build();
+
+            transferGrpcService.transfer(listRequest, responseObserver);
+
+            PairConfigDto pairConfig = configService.findPairConfigByPair(pair);
+            BigDecimal minQuoteAmount = pairConfig.getMinQuoteAmount();
+            BigDecimal volume = spendMoney.divide(latestTrade.getPrice(), 10, RoundingMode.DOWN);
+            BigDecimal dealMoney = volume.multiply(latestTrade.getPrice());
+            log.info("test deal_money={}", dealMoney);
+
+            BigDecimal fee = volume.multiply(feeRate);
+            TradeEventDto tradeEventDto = TradeEventDto.builder()
+                    .pair(pair)
+                    .orderId(orderId)
+                    .chainupId(chainupId)
+                    .orderSide(marketOrder.getSide())
+                    .trade(ExTradeDto.builder()
+                            .price(latestTrade.getPrice())
+                            .volume(volume)
+                            .bidId(orderId)
+                            .askId(0L)
+                            .trendSide(marketOrder.getSide().value)
+                            .bidUserId(chainupId)
+                            .askUserId(mmChainupId)
+                            .buyFee(fee)
+                            .sellFee(BigDecimal.ZERO)
+                            .buyFeeCoin(base.toUpperCase())
+                            .sellFeeCoin(quote.toUpperCase())
+                            .ctime(now).mtime(now)
+                            .buyType(OrderLeverType.NORMAL_ORDER.value)
+                            .sellType(OrderLeverType.MARKET_MAKING_ORDER.value)
+                            .build())
+                    .eventTime(LocalDateTime.now()).build();
+            testKafkaTemplate.send(tradeEventTopic, tradeTable, tradeEventDto);
         }
-        BigDecimal fee = volume.multiply(new BigDecimal("0.001"));
-        TradeEventDto tradeEventDto = TradeEventDto.builder()
-                .pair(pair)
-                .orderId(orderId)
-                .chainupId(chainupId)
-                .orderSide(marketOrder.getSide())
-                .trade(ExTradeDto.builder()
-                        .price(latestTrade.getPrice())
-                        .volume(volume)
-                        .bidId(orderId)
-                        .askId(0L)
-                        .trendSide(marketOrder.getSide().value)
-                        .bidUserId(chainupId)
-                        .askUserId(mmChainupId)
-                        .buyFee(fee)
-                        .sellFee(BigDecimal.ZERO)
-                        .buyFeeCoin(base.toUpperCase())
-                        .sellFeeCoin(quote.toUpperCase())
-                        .ctime(now).mtime(now)
-                        .buyType(OrderLeverType.NORMAL_ORDER.value)
-                        .sellType(OrderLeverType.MARKET_MAKING_ORDER.value)
-                        .build())
-                .eventTime(LocalDateTime.now()).build();
-        testKafkaTemplate.send(tradeEventTopic, "ex_trade_btcusdt", tradeEventDto);
+
     }
 
     @PostMapping("/api/v2/test")
@@ -162,7 +163,7 @@ public class TestController {
                 StreamObserver<TransferResponse> observer = new StreamObserver<>() {
                     @Override
                     public void onNext(TransferResponse value) {
-                        //log.info("Test transfer submitted to Raft: {}", value.getMessage());
+
                     }
 
                     @Override
@@ -211,6 +212,25 @@ public class TestController {
             @Override
             public void onNext(TransferResponse value) {
                 //log.info("Test transfer submitted to Raft: {}", value.getMessage());
+                //log.info("Test transfer submitted to Raft: {}", value.getMessage());
+                StreamObserver<LedgerResponse> responseObserver = new StreamObserver<>() {
+                    @Override
+                    public void onNext(LedgerResponse value) {
+                        log.info("[TestController] ledger response={}", value.toString());
+                    }
+
+                    @Override
+                    public void onError(Throwable throwable) {
+
+                    }
+
+                    @Override
+                    public void onCompleted() {
+
+                    }
+                };
+                LedgerRequest ledgerRequest = LedgerRequest.newBuilder().setChainupId(19914).setType(2021013).build();
+                transferGrpcService.getLedgerFromMemory(ledgerRequest, responseObserver);
             }
 
             @Override
