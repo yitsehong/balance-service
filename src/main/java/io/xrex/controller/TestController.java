@@ -212,25 +212,6 @@ public class TestController {
             @Override
             public void onNext(TransferResponse value) {
                 //log.info("Test transfer submitted to Raft: {}", value.getMessage());
-                //log.info("Test transfer submitted to Raft: {}", value.getMessage());
-                StreamObserver<LedgerResponse> responseObserver = new StreamObserver<>() {
-                    @Override
-                    public void onNext(LedgerResponse value) {
-                        log.info("[TestController] ledger response={}", value.toString());
-                    }
-
-                    @Override
-                    public void onError(Throwable throwable) {
-
-                    }
-
-                    @Override
-                    public void onCompleted() {
-
-                    }
-                };
-                LedgerRequest ledgerRequest = LedgerRequest.newBuilder().setChainupId(19914).setType(2021013).build();
-                transferGrpcService.getLedgerFromMemory(ledgerRequest, responseObserver);
             }
 
             @Override

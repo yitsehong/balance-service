@@ -1,4 +1,4 @@
-package io.xrex.service.event;
+package io.xrex.event.handler;
 
 import io.xrex.dto.AccountIdDto;
 import io.xrex.dto.event.TransactionEventDto;

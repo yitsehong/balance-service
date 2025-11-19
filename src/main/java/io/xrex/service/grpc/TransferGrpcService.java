@@ -90,8 +90,7 @@ public class TransferGrpcService extends TransferServiceGrpc.TransferServiceImpl
         final String requestId = request.getRequestId();
         if (Strings.isNullOrEmpty(requestId)) {
             responseObserver.onError(Status.INVALID_ARGUMENT
-                    .withDescription("request_id is required for idempotency.")
-                    .asRuntimeException());
+                    .withDescription("request_id is required for idempotency.").asRuntimeException());
             return;
         }
 
