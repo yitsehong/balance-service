@@ -122,7 +122,6 @@ public class TestController {
             transferGrpcService.transfer(listRequest, responseObserver);
 
             PairConfigDto pairConfig = configService.findPairConfigByPair(pair);
-            BigDecimal minQuoteAmount = pairConfig.getMinQuoteAmount();
             BigDecimal volume = spendMoney.divide(latestTrade.getPrice(), 10, RoundingMode.DOWN);
             BigDecimal dealMoney = volume.multiply(latestTrade.getPrice());
             log.info("test deal_money={}", dealMoney);
@@ -150,7 +149,7 @@ public class TestController {
                             .sellType(OrderLeverType.MARKET_MAKING_ORDER.value)
                             .build())
                     .eventTime(LocalDateTime.now()).build();
-            testKafkaTemplate.send(tradeEventTopic, tradeTable, tradeEventDto);
+            testKafkaTemplate.send(tradeEventTopic, tradeTable + "-" + orderId, tradeEventDto);
         }
 
     }

@@ -1,7 +1,10 @@
 package io.xrex.dto.event;
 
 import com.fasterxml.jackson.annotation.JsonFormat;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+import io.xrex.enums.*;
+import io.xrex.persistence.entity.ExOrderEntity;
 import io.xrex.persistence.entity.ExTradeEntity;
 import io.xrex.util.BigDecimalToStringSerializer;
 import io.xrex.util.XrexConstant;
@@ -57,6 +60,32 @@ public class ExTradeDto {
                 .mtime(this.mtime)
                 .buyType(this.buyType)
                 .sellType(this.sellType)
+                .build();
+    }
+
+    @JsonIgnore
+    public ExOrderEntity toMMExOrderEntity(Integer mmChainupId, OrderSide orderSide) {
+        LocalDateTime eventTime = LocalDateTime.now();
+        BigDecimal dealMoney = this.volume.multiply(this.price);
+        return ExOrderEntity.builder()
+                .userId(mmChainupId)
+                .side(OrderSide.BUY == orderSide ? OrderSide.SELL : OrderSide.BUY)
+                .price(this.price)
+                .volume(this.volume)
+                .feeDeductType(FeeDeductType.INNER)
+                .feeRateMaker(0d)
+                .feeRateTaker(0d)
+                .fee(BigDecimal.ZERO)
+                .feeCoinRate(0d)
+                .dealVolume(this.volume)
+                .dealMoney(dealMoney)
+                .avgPrice(this.price)
+                .lockedAmount(OrderSide.BUY == orderSide ? this.volume : dealMoney)
+                .status(OrderStatus.FILLED)
+                .type(OrderType.LIMIT)
+                .source(OrderSourceType.ROBOT)
+                .orderType(OrderLeverType.MARKET_MAKING_ORDER)
+                .ctime(eventTime).mtime(eventTime)
                 .build();
     }
 }

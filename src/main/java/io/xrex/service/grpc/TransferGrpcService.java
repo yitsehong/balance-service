@@ -4,12 +4,12 @@ import com.google.common.base.Strings;
 import com.google.protobuf.util.JsonFormat;
 import io.grpc.Status;
 import io.grpc.stub.StreamObserver;
-import io.xrex.enums.ErrorCodes;
-import io.xrex.enums.ReadConsistency;
-import io.xrex.grpc.*;
 import io.xrex.dto.AccountIdDto;
 import io.xrex.dto.IdempotencyRecordDto;
 import io.xrex.dto.event.TransactionEventDto;
+import io.xrex.enums.ErrorCodes;
+import io.xrex.enums.ReadConsistency;
+import io.xrex.grpc.*;
 import io.xrex.persistence.entity.AccountEntity;
 import io.xrex.persistence.entity.ConfigAccountTypeEntity;
 import io.xrex.persistence.entity.LedgerBookEntity;
@@ -31,7 +31,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
 
 import static io.xrex.util.XrexConstant.ISO_DATE_FORMATTER;
@@ -45,36 +44,29 @@ import static io.xrex.util.XrexConstant.ISO_DATE_FORMATTER;
 @GrpcService
 public class TransferGrpcService extends TransferServiceGrpc.TransferServiceImplBase {
 
-    private static final ExecutorService virtualThreadExecutor = Executors.newVirtualThreadPerTaskExecutor();
-
     private final BatchTransferProcessorService batchTransferProcessorService;
     private final CustomRaftClient raftClient;
     private final SnowflakeIdGenerator snowflakeIdGenerator;
     private final ConfigService configService;
     private final AccountRepository accountRepository;
     private final IdempotencyService idempotencyService;
+    private final ExecutorService virtualThreadExecutor;
+
+    private static final int IDEMPOTENCY_MAX_RETRIES = 10;
+    private static final long IDEMPOTENCY_RETRY_DELAY_MS = 200;
 
     public TransferGrpcService(BatchTransferProcessorService batchTransferProcessorService, CustomRaftClient raftClient,
                                SnowflakeIdGenerator snowflakeIdGenerator, ConfigService configService,
-                               AccountRepository accountRepository, IdempotencyService idempotencyService) {
+                               AccountRepository accountRepository, IdempotencyService idempotencyService,
+                               ExecutorService virtualThreadExecutor) {
         this.batchTransferProcessorService = batchTransferProcessorService;
         this.raftClient = raftClient;
         this.snowflakeIdGenerator = snowflakeIdGenerator;
         this.configService = configService;
         this.accountRepository = accountRepository;
         this.idempotencyService = idempotencyService;
+        this.virtualThreadExecutor = virtualThreadExecutor;
     }
-
-    /**
-     * Processes a transfer request by submitting it to the Raft batch processor.
-     * This method is idempotent, meaning that submitting the same request multiple times
-     * will not result in duplicate transfers.
-     *
-     * @param request The transfer request, containing a list of individual transfers.
-     * @param responseObserver The observer to which the response is sent.
-     */
-    private static final int IDEMPOTENCY_MAX_RETRIES = 10;
-    private static final long IDEMPOTENCY_RETRY_DELAY_MS = 200;
 
     /**
      * Processes a transfer request by submitting it to the Raft batch processor.

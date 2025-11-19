@@ -3,6 +3,7 @@ package io.xrex.event.handler;
 import io.grpc.stub.StreamObserver;
 import io.xrex.dto.CancelOrderIdDto;
 import io.xrex.dto.event.CancelOrderEventDto;
+import io.xrex.dto.event.ExTradeDto;
 import io.xrex.dto.event.TradeEventDto;
 import io.xrex.grpc.TransferListRequest;
 import io.xrex.grpc.TransferResponse;
@@ -16,10 +17,9 @@ import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.support.Acknowledgment;
 import org.springframework.stereotype.Component;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
 
 @Slf4j
 @Component
@@ -29,6 +29,7 @@ public class TradeEventHandler {
     private final TradeTransferService tradeTransferService;
     private final TransferGrpcService transferGrpcService;
     private final OrderTransferService orderTransferService;
+    private final ExecutorService virtualThreadExecutor;
 
     @KafkaListener(topicPattern = "${app.kafka.trade-event.topic}", groupId = "${app.kafka.trade-event.group}", containerFactory = "tradeEventFactory")
     public void handleTradeEventTransfer(List<ConsumerRecord<String, TradeEventDto>> records, Acknowledgment acknowledgment) {
@@ -38,18 +39,63 @@ public class TradeEventHandler {
         }
 
         try {
-            StreamObserver<TransferResponse> responseObserver = buildResponseObserver();
+            // Step 1: Group all events by orderId.
+            Map<String, List<TradeEventDto>> eventsByOrderId = new HashMap<>();
             for (ConsumerRecord<String, TradeEventDto> record : records) {
-                long start = System.currentTimeMillis();
-                TradeEventDto tradeEvent = record.value();
-                tradeTransferService.handleTradeTransfer(tradeEvent, responseObserver);
-                log.info("Transfer to {} completed in {} ms", tradeEvent.getOrderId(), System.currentTimeMillis() - start);
+                eventsByOrderId.computeIfAbsent(record.key(), k -> new ArrayList<>()).add(record.value());
             }
+
+            // Step 2: Aggregate trades for each orderId into a single event.
+            List<TradeEventDto> aggregatedEvents = new ArrayList<>();
+            for (Map.Entry<String, List<TradeEventDto>> entry : eventsByOrderId.entrySet()) {
+                List<TradeEventDto> group = entry.getValue();
+                if (group.isEmpty()) {
+                    continue;
+                }
+                // Use the first event as a template.
+                TradeEventDto masterEvent = group.getFirst();
+                List<ExTradeDto> allTrades = new ArrayList<>();
+                for (TradeEventDto event : group) {
+                    if (event.getTrades() != null) {
+                        allTrades.addAll(event.getTrades());
+                    }
+                }
+
+                // Create a new aggregated event DTO.
+                TradeEventDto aggregatedEvent = TradeEventDto.builder()
+                        .orderId(masterEvent.getOrderId())
+                        .pair(masterEvent.getPair())
+                        .chainupId(masterEvent.getChainupId())
+                        .trades(allTrades)
+                        .build();
+                aggregatedEvents.add(aggregatedEvent);
+            }
+
+            // Step 3: Concurrently process each aggregated event in a virtual thread.
+            List<CompletableFuture<Void>> futures = new ArrayList<>();
+            for (TradeEventDto aggEvent : aggregatedEvents) {
+                CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
+                    try {
+                        long start = System.currentTimeMillis();
+                        // Each aggregated event for a unique orderId is processed here.
+                        tradeTransferService.handleTradeTransfer(aggEvent, buildResponseObserver());
+                        log.info("Submitted aggregated transfer for order {} with {} trades in {} ms",
+                                aggEvent.getOrderId(), aggEvent.getTrades().size(), System.currentTimeMillis() - start);
+                    } catch (Exception e) {
+                        log.error("Failed to process aggregated event for orderId: {}. Error: {}",
+                                aggEvent.getOrderId(), e.getMessage(), e);
+                    }
+                }, virtualThreadExecutor);
+                futures.add(future);
+            }
+
+            // Wait for all aggregated events to complete processing.
+            CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+            log.info("All {} records processed, aggregated into {} unique orders.", records.size(), aggregatedEvents.size());
+
         } catch (Exception e) {
-            // Log the error for the specific mini-batch and continue with the next
-            // This enhances resilience, preventing one bad batch from stopping the entire poll.
-            log.error("Failed to process persisted. Error: {}", e.getMessage(), e);
-            // TODO: Consider sending the failed mini-batch to a dead-letter queue for manual inspection.
+            log.error("Failed to process trade event batch. Error: {}", e.getMessage(), e);
+            // TODO: Consider sending all failed records to a dead-letter queue for manual inspection.
         } finally {
             acknowledgment.acknowledge();
         }
