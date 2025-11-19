@@ -92,8 +92,10 @@ public class TradeTransferService {
 
         handleRemainMoney(bid, pairConfig, requests);
         handleRemainMoney(ask, pairConfig, requests);
-        TransferListRequest remainReturnTransferListRequest = TransferListRequest.newBuilder().addAllRequests(requests).setRequestId(UUIDv7Generator.generate()).build();
-        transferGrpcService.transfer(remainReturnTransferListRequest, responseObserver);
+        if (!requests.isEmpty()) {
+            TransferListRequest remainReturnTransferListRequest = TransferListRequest.newBuilder().addAllRequests(requests).setRequestId(UUIDv7Generator.generate()).build();
+            transferGrpcService.transfer(remainReturnTransferListRequest, responseObserver);
+        }
     }
 
     private void updateOrder(ExTradeEntity exTrade, ExOrderEntity exOrder, PairConfigDto pairConfig, LocalDateTime handleTime) {
@@ -141,7 +143,6 @@ public class TradeTransferService {
         }
 
         BigDecimal remainAmount = exOrder.getRemainAmount();
-        log.info("[handleRemainMoney] remainAmount={}", remainAmount);
         if (remainAmount.compareTo(BigDecimal.ZERO) > 0) {
             Pair<Integer, Integer> remainAccountTypes = getRemainAccountTypes(exOrder, pairConfig);
             TransferRequest.Builder trans = TransferRequest.newBuilder()
@@ -160,7 +161,6 @@ public class TradeTransferService {
                 trans.setToSubType(subAccountType);
             }
             requests.add(trans.build());
-            log.info("[handleRemainMoney] trans={}", trans.build());
         }
     }
 
