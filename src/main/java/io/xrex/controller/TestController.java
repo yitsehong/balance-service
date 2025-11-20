@@ -93,10 +93,13 @@ public class TestController {
         String tradeTable = "ex_trade_" + pair;
         Integer chainupId = 19914;
         ExTradeEntity latestTrade = exTradeDao.findLatestTrade(tradeTable);
+        BigDecimal tradePrice = latestTrade.getPrice();
         StreamObserver<TransferResponse> responseObserver = build();
         for (int i = 0; i < loop; i++) {
             BigDecimal spendMoney = new BigDecimal("1000");
             LocalDateTime now = LocalDateTime.now();
+            BigDecimal volume = spendMoney.divide(latestTrade.getPrice(), 10, RoundingMode.DOWN);
+            BigDecimal dealMoney = tradePrice.multiply(volume);
             ExOrderEntity marketOrder = ExOrderEntity.builder()
                     .userId(chainupId).side(OrderSide.BUY)
                     .price(BigDecimal.ZERO).volume(spendMoney)
@@ -104,7 +107,14 @@ public class TestController {
                     .fee(BigDecimal.ZERO).feeCoinRate(BigDecimal.ZERO.doubleValue()).dealVolume(BigDecimal.ZERO).dealMoney(BigDecimal.ZERO).avgPrice(BigDecimal.ZERO).lockedAmount(spendMoney)
                     .status(OrderStatus.INIT).type(OrderType.MARKET).ctime(now).mtime(now).source(OrderSourceType.WEB).orderType(OrderLeverType.NORMAL_ORDER)
                     .build();
-            List<Long> orderIds = exOrderDao.batchInsert(List.of(marketOrder), orderTable);
+            ExOrderEntity mmOrder = ExOrderEntity.builder()
+                    .userId(mmChainupId).side(OrderSide.SELL)
+                    .price(tradePrice).volume(volume)
+                    .feeDeductType(FeeDeductType.INNER).feeRateTaker(BigDecimal.ZERO.doubleValue()).feeRateMaker(BigDecimal.ZERO.doubleValue())
+                    .fee(BigDecimal.ZERO).feeCoinRate(BigDecimal.ZERO.doubleValue()).dealVolume(volume).dealMoney(dealMoney).avgPrice(tradePrice).lockedAmount(volume)
+                    .status(OrderStatus.FILLED).type(OrderType.LIMIT).ctime(now).mtime(now).source(OrderSourceType.WEB).orderType(OrderLeverType.MARKET_MAKING_ORDER)
+                    .build();
+            List<Long> orderIds = exOrderDao.batchInsert(List.of(marketOrder, mmOrder), orderTable);
             Long orderId = orderIds.getFirst();
 
             List<TransferRequest> requests = new ArrayList<>();
@@ -115,10 +125,7 @@ public class TestController {
                     .build();
             requests.add(request);
             TransferListRequest listRequest = TransferListRequest.newBuilder().addAllRequests(requests).setRequestId(UUIDv7Generator.generate()).build();
-
             transferGrpcService.transfer(listRequest, responseObserver);
-
-            BigDecimal volume = spendMoney.divide(latestTrade.getPrice(), 10, RoundingMode.DOWN);
 
             TradeEventDto tradeEventDto = TradeEventDto.builder()
                     .pair(pair)
@@ -126,7 +133,7 @@ public class TestController {
                             .price(latestTrade.getPrice())
                             .volume(volume)
                             .bidId(orderId)
-                            .askId(0L)
+                            .askId(orderIds.getLast())
                             .trendSide(marketOrder.getSide().value)
                             .bidUserId(chainupId)
                             .askUserId(mmChainupId)
@@ -137,6 +144,7 @@ public class TestController {
                             .ctime(now).mtime(now)
                             .buyType(OrderLeverType.NORMAL_ORDER.value)
                             .sellType(OrderLeverType.MARKET_MAKING_ORDER.value)
+                            .tradeNonce(UUIDv7Generator.generate())
                             .build())
                     .eventTime(LocalDateTime.now()).build();
             testKafkaTemplate.send(tradeEventTopic, tradeTable, tradeEventDto);

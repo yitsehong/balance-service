@@ -54,7 +54,8 @@ public class TradeEventHandler {
                     try {
                         tradeTransferService.handleTradeTransfer(entry.getKey(), entry.getValue(), buildResponseObserver());
                     } catch (Exception e) {
-                        log.error("Failed to process aggregated event. Error: {}", e.getMessage(), e);
+                        log.error("Failed to process trade event batch. Error: {}", e.getMessage(), e);
+                        // TODO: Consider sending all failed records to a dead-letter queue for manual inspection.
                     }
                 }, virtualThreadExecutor);
                 futures.add(future);
@@ -63,9 +64,6 @@ public class TradeEventHandler {
             // Wait for all aggregated events to complete processing.
             CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
             log.info("All {} records processed.", records.size());
-        } catch (Exception e) {
-            log.error("Failed to process trade event batch. Error: {}", e.getMessage(), e);
-            // TODO: Consider sending all failed records to a dead-letter queue for manual inspection.
         } finally {
             acknowledgment.acknowledge();
         }

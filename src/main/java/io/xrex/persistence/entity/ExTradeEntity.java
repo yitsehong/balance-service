@@ -1,5 +1,6 @@
 package io.xrex.persistence.entity;
 
+import jakarta.persistence.Transient;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -29,4 +30,7 @@ public class ExTradeEntity {
     private LocalDateTime mtime;
     private Byte buyType;
     private Byte sellType;
+
+    @Transient
+    private String tradeNonce;
 }

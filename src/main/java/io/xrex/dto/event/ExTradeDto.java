@@ -43,6 +43,8 @@ public class ExTradeDto {
     private Byte buyType;
     private Byte sellType;
 
+    private String tradeNonce;
+
     public ExTradeEntity toEntity() {
         return ExTradeEntity.builder()
                 .price(this.price)
@@ -60,6 +62,7 @@ public class ExTradeDto {
                 .mtime(this.mtime)
                 .buyType(this.buyType)
                 .sellType(this.sellType)
+                .tradeNonce(this.tradeNonce)
                 .build();
     }
 

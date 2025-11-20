@@ -3,6 +3,7 @@ package io.xrex.persistence.repository;
 import io.xrex.enums.OrderStatus;
 import io.xrex.persistence.entity.ExOrderEntity;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.jdbc.support.KeyHolder;
@@ -17,60 +18,15 @@ import java.sql.Types;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
+@Slf4j
 @Repository
 @RequiredArgsConstructor
 public class ExOrderDao {
 
     private final JdbcTemplate jdbcTemplate;
-
-    public Long insert(ExOrderEntity order, String tableName) {
-        isValidTableName(tableName);
-        String sql = "INSERT INTO " + tableName +
-                """
-                         (user_id, side, price, volume, fee_account_type, fee_deduct_type,
-                        fee_rate_maker, fee_rate_taker, fee, fee_coin_rate, deal_volume, deal_money, avg_price, locked_amount,
-                        status, type, ctime, mtime, source, order_type, stop_price, stop_price_direction, quote_account_type,
-                        quote_subaccount_type, base_account_type, base_subaccount_type, margin_trade_id, margin_direction, bot_id)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        """;
-
-        KeyHolder keyHolder = new GeneratedKeyHolder();
-        jdbcTemplate.update(connection -> {
-            PreparedStatement ps = connection.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS);
-            if (order.getUserId() != null) ps.setInt(1, order.getUserId()); else ps.setNull(1, Types.INTEGER);
-            if (order.getSide() != null) ps.setString(2, order.getSide().name()); else ps.setNull(2, Types.VARCHAR);
-            if (order.getPrice() != null) ps.setBigDecimal(3, order.getPrice()); else ps.setNull(3, Types.DECIMAL);
-            if (order.getVolume() != null) ps.setBigDecimal(4, order.getVolume()); else ps.setNull(4, Types.DECIMAL);
-            if (order.getFeeAccountType() != null) ps.setInt(5, order.getFeeAccountType()); else ps.setNull(5, Types.INTEGER);
-            if (order.getFeeDeductType() != null) ps.setInt(6, order.getFeeDeductType().value); else ps.setNull(6, Types.INTEGER);
-            if (order.getFeeRateMaker() != null) ps.setDouble(7, order.getFeeRateMaker()); else ps.setNull(7, Types.DOUBLE);
-            if (order.getFeeRateTaker() != null) ps.setDouble(8, order.getFeeRateTaker()); else ps.setNull(8, Types.DOUBLE);
-            if (order.getFee() != null) ps.setBigDecimal(9, order.getFee()); else ps.setNull(9, Types.DECIMAL);
-            if (order.getFeeCoinRate() != null) ps.setDouble(10, order.getFeeCoinRate()); else ps.setNull(10, Types.DOUBLE);
-            if (order.getDealVolume() != null) ps.setBigDecimal(11, order.getDealVolume()); else ps.setNull(11, Types.DECIMAL);
-            if (order.getDealMoney() != null) ps.setBigDecimal(12, order.getDealMoney()); else ps.setNull(12, Types.DECIMAL);
-            if (order.getAvgPrice() != null) ps.setBigDecimal(13, order.getAvgPrice()); else ps.setNull(13, Types.DECIMAL);
-            if (order.getLockedAmount() != null) ps.setBigDecimal(14, order.getLockedAmount()); else ps.setNull(14, Types.DECIMAL);
-            if (order.getStatus() != null) ps.setByte(15, (byte) order.getStatus().value); else ps.setNull(15, Types.TINYINT);
-            if (order.getType() != null) ps.setByte(16, (byte) order.getType().value); else ps.setNull(16, Types.TINYINT);
-            if (order.getCtime() != null) ps.setTimestamp(17, Timestamp.valueOf(order.getCtime())); else ps.setNull(17, Types.TIMESTAMP);
-            if (order.getMtime() != null) ps.setTimestamp(18, Timestamp.valueOf(order.getMtime())); else ps.setNull(18, Types.TIMESTAMP);
-            if (order.getSource() != null) ps.setByte(19, (byte) order.getSource().value); else ps.setNull(19, Types.TINYINT);
-            if (order.getOrderType() != null) ps.setByte(20, (byte) order.getOrderType().value); else ps.setNull(20, Types.TINYINT);
-            if (order.getStopPrice() != null) ps.setBigDecimal(21, order.getStopPrice()); else ps.setNull(21, Types.DECIMAL);
-            if (order.getStopPriceDirection() != null) ps.setByte(22, (byte) order.getStopPriceDirection().value); else ps.setNull(22, Types.TINYINT);
-            if (order.getQuoteAccountType() != null) ps.setInt(23, order.getQuoteAccountType()); else ps.setNull(23, Types.INTEGER);
-            if (order.getQuoteSubaccountType() != null) ps.setString(24, order.getQuoteSubaccountType()); else ps.setNull(24, Types.VARCHAR);
-            if (order.getBaseAccountType() != null) ps.setInt(25, order.getBaseAccountType()); else ps.setNull(25, Types.INTEGER);
-            if (order.getBaseSubaccountType() != null) ps.setString(26, order.getBaseSubaccountType()); else ps.setNull(26, Types.VARCHAR);
-            if (order.getMarginTradeId() != null) ps.setLong(27, order.getMarginTradeId()); else ps.setNull(27, Types.BIGINT);
-            if (order.getMarginDirection() != null) ps.setString(28, order.getMarginDirection()); else ps.setNull(28, Types.VARCHAR);
-            if (order.getBotId() != null) ps.setLong(29, order.getBotId()); else ps.setNull(29, Types.BIGINT);
-            return ps;
-        }, keyHolder);
-        return keyHolder.getKey().longValue();
-    }
     
     public List<Long> batchInsert(List<ExOrderEntity> orders, String tableName) {
         isValidTableName(tableName);
@@ -102,14 +58,14 @@ public class ExOrderDao {
                 if (order.getDealMoney() != null) ps.setBigDecimal(12, order.getDealMoney()); else ps.setNull(12, Types.DECIMAL);
                 if (order.getAvgPrice() != null) ps.setBigDecimal(13, order.getAvgPrice()); else ps.setNull(13, Types.DECIMAL);
                 if (order.getLockedAmount() != null) ps.setBigDecimal(14, order.getLockedAmount()); else ps.setNull(14, Types.DECIMAL);
-                if (order.getStatus() != null) ps.setByte(15, (byte) order.getStatus().value); else ps.setNull(15, Types.TINYINT);
-                if (order.getType() != null) ps.setByte(16, (byte) order.getType().value); else ps.setNull(16, Types.TINYINT);
+                if (order.getStatus() != null) ps.setByte(15, order.getStatus().value); else ps.setNull(15, Types.TINYINT);
+                if (order.getType() != null) ps.setByte(16, order.getType().value); else ps.setNull(16, Types.TINYINT);
                 if (order.getCtime() != null) ps.setTimestamp(17, Timestamp.valueOf(order.getCtime())); else ps.setNull(17, Types.TIMESTAMP);
                 if (order.getMtime() != null) ps.setTimestamp(18, Timestamp.valueOf(order.getMtime())); else ps.setNull(18, Types.TIMESTAMP);
-                if (order.getSource() != null) ps.setByte(19, (byte) order.getSource().value); else ps.setNull(19, Types.TINYINT);
-                if (order.getOrderType() != null) ps.setByte(20, (byte) order.getOrderType().value); else ps.setNull(20, Types.TINYINT);
+                if (order.getSource() != null) ps.setByte(19, order.getSource().value); else ps.setNull(19, Types.TINYINT);
+                if (order.getOrderType() != null) ps.setByte(20, order.getOrderType().value); else ps.setNull(20, Types.TINYINT);
                 if (order.getStopPrice() != null) ps.setBigDecimal(21, order.getStopPrice()); else ps.setNull(21, Types.DECIMAL);
-                if (order.getStopPriceDirection() != null) ps.setByte(22, (byte) order.getStopPriceDirection().value); else ps.setNull(22, Types.TINYINT);
+                if (order.getStopPriceDirection() != null) ps.setByte(22, order.getStopPriceDirection().value); else ps.setNull(22, Types.TINYINT);
                 if (order.getQuoteAccountType() != null) ps.setInt(23, order.getQuoteAccountType()); else ps.setNull(23, Types.INTEGER);
                 if (order.getQuoteSubaccountType() != null) ps.setString(24, order.getQuoteSubaccountType()); else ps.setNull(24, Types.VARCHAR);
                 if (order.getBaseAccountType() != null) ps.setInt(25, order.getBaseAccountType()); else ps.setNull(25, Types.INTEGER);
@@ -122,6 +78,68 @@ public class ExOrderDao {
             generatedIds.add(keyHolder.getKey().longValue());
         }
         return generatedIds;
+    }
+
+    public void batchUpsert(List<ExOrderEntity> updateOrders, String tableName) {
+        isValidTableName(tableName);
+        String valuesSql = IntStream.range(0, updateOrders.size())
+                .mapToObj(i -> "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+                .collect(Collectors.joining(", "));
+
+        String sql = "INSERT INTO " + tableName +
+                """
+                         (id, user_id, side, price, volume, fee_account_type, fee_deduct_type,
+                        fee_rate_maker, fee_rate_taker, fee, fee_coin_rate, deal_volume, deal_money, avg_price, locked_amount,
+                        status, type, ctime, mtime, source, order_type, stop_price, stop_price_direction, quote_account_type,
+                        quote_subaccount_type, base_account_type, base_subaccount_type, margin_trade_id, margin_direction, bot_id) 
+                        VALUES 
+                        """ + valuesSql + """
+                        ON DUPLICATE KEY UPDATE
+                        status = IF(VALUES(status) IS NOT NULL, VALUES(status), status),
+                        fee = IF(VALUES(fee) IS NOT NULL, VALUES(fee), fee),
+                        deal_volume = IF(VALUES(deal_volume) IS NOT NULL, VALUES(deal_volume), deal_volume),
+                        deal_money = IF(VALUES(deal_money) IS NOT NULL, VALUES(deal_money), deal_money),
+                        avg_price = IF(VALUES(avg_price) IS NOT NULL, VALUES(avg_price), avg_price),
+                        mtime = IF(VALUES(mtime) IS NOT NULL, VALUES(mtime), mtime)
+                    """;
+        log.info("Batch Upsert SQL={}", sql);
+        jdbcTemplate.update(con -> {
+            PreparedStatement ps = con.prepareStatement(sql);
+            for (ExOrderEntity order : updateOrders) {
+                ps.setLong(1, order.getId());
+                ps.setInt(2, order.getUserId());
+                ps.setString(3, order.getSide().name());
+                ps.setBigDecimal(4, order.getPrice());
+                ps.setBigDecimal(5, order.getVolume());
+                ps.setInt(6, order.getFeeAccountType());
+                ps.setInt(7, order.getFeeDeductType().value);
+                ps.setDouble(8, order.getFeeRateMaker());
+                ps.setDouble(9, order.getFeeRateTaker());
+                ps.setBigDecimal(10, order.getFee());
+                ps.setDouble(11, order.getFeeCoinRate());
+                ps.setBigDecimal(12, order.getDealVolume());
+                ps.setBigDecimal(13, order.getDealMoney());
+                ps.setBigDecimal(14, order.getAvgPrice());
+                ps.setBigDecimal(15, order.getLockedAmount());
+                ps.setByte(16, order.getStatus().value);
+                ps.setByte(17, order.getType().value);
+                ps.setTimestamp(18, Timestamp.valueOf(order.getCtime()));
+                ps.setTimestamp(19, Timestamp.valueOf(order.getMtime()));
+                ps.setByte(20, order.getSource().value);
+                ps.setByte(21, order.getOrderType().value);
+                ps.setBigDecimal(22, order.getStopPrice());
+                if (order.getStopPriceDirection() != null) ps.setByte(23, order.getStopPriceDirection().value); else ps.setNull(23, Types.TINYINT);
+                ps.setInt(24, order.getQuoteAccountType());
+                ps.setString(25, order.getQuoteSubaccountType());
+                ps.setInt(26, order.getBaseAccountType());
+                ps.setString(27, order.getBaseSubaccountType());
+                ps.setLong(28, order.getMarginTradeId());
+                ps.setString(29, order.getMarginDirection());
+                ps.setLong(30, order.getBotId());
+            }
+
+            return ps;
+        });
     }
 
     public ExOrderEntity findById(Long id, String tableName) {
@@ -148,12 +166,6 @@ public class ExOrderDao {
         String inClause = String.join(",", java.util.Collections.nCopies(ids.size(), "?"));
         String sql = "SELECT * FROM " + tableName + " WHERE id IN (" + inClause + ")";
         return jdbcTemplate.query(sql, ids.toArray(), new ExOrderEntityRowMapper());
-    }
-
-    public int updateOrder(Long id, OrderStatus status, BigDecimal fee, BigDecimal dealVolume, BigDecimal dealMoney, BigDecimal avgPrice, LocalDateTime time, String tableName) {
-        isValidTableName(tableName);
-        String sql = "UPDATE " + tableName + " SET status = ?, fee = fee + ?, deal_volume = deal_volume + ?, deal_money = deal_money + ?, avg_price = ?, mtime = ? WHERE id = ?  AND status IN (0,1,3)";
-        return jdbcTemplate.update(sql, status.value, fee, dealVolume, dealMoney, avgPrice, Timestamp.valueOf(time), id);
     }
 
     public int updateStatus(Long id, OrderStatus newStatus, String tableName) {

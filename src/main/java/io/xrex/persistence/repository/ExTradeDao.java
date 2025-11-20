@@ -23,13 +23,12 @@ public class ExTradeDao {
     private final JdbcTemplate jdbcTemplate;
 
     @Transactional
-    public List<Long> batchInsert(List<ExTradeEntity> trades, String tableName) {
+    public void batchInsert(List<ExTradeEntity> trades, String tableName) {
         isValidTableName(tableName);
         String sql = "INSERT INTO " + tableName + " (price, volume, bid_id, ask_id, trend_side, bid_user_id, ask_user_id, " +
                 "buy_fee, sell_fee, buy_fee_coin, sell_fee_coin, ctime, mtime, buy_type, sell_type) " +
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
-        List<Long> generatedIds = new ArrayList<>();
         for (ExTradeEntity trade : trades) {
             KeyHolder keyHolder = new GeneratedKeyHolder();
             jdbcTemplate.update(connection -> {
@@ -51,9 +50,8 @@ public class ExTradeDao {
                 if (trade.getSellType() != null) ps.setByte(15, trade.getSellType()); else ps.setNull(15, Types.TINYINT);
                 return ps;
             }, keyHolder);
-            generatedIds.add(keyHolder.getKey().longValue());
+            trade.setId(keyHolder.getKey().longValue());
         }
-        return generatedIds;
     }
 
     public Long insert(ExTradeEntity trade, String tableName) {

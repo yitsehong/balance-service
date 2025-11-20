@@ -3,22 +3,21 @@ package io.xrex.service;
 import io.grpc.stub.StreamObserver;
 import io.xrex.dto.PairConfigDto;
 import io.xrex.dto.event.ExTradeDto;
-import io.xrex.enums.*;
+import io.xrex.enums.OrderLeverType;
+import io.xrex.enums.OrderSide;
+import io.xrex.enums.OrderStatus;
+import io.xrex.enums.TransactionScene;
 import io.xrex.grpc.TransferListRequest;
 import io.xrex.grpc.TransferRequest;
 import io.xrex.grpc.TransferResponse;
-import io.xrex.persistence.entity.ConfigAccountTypeEntity;
 import io.xrex.persistence.entity.ExOrderEntity;
 import io.xrex.persistence.entity.ExTradeEntity;
-import io.xrex.persistence.repository.ConfigAccountTypeRepository;
 import io.xrex.persistence.repository.ExOrderDao;
 import io.xrex.persistence.repository.ExTradeDao;
 import io.xrex.service.grpc.TransferGrpcService;
-import io.xrex.util.UUIDv7Generator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.commons.lang3.tuple.Pair;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -28,7 +27,9 @@ import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 import static io.xrex.util.XrexConstant.SYSTEM_CHAINUP_ID;
 
@@ -39,65 +40,63 @@ public class TradeTransferService {
 
     @Value("${balance-service.fee-chainup-id}")
     private Integer feeChainupId;
-    @Value("${balance-service.mm-chainup-id}")
-    private Integer mmChainupId;
 
     private final ConfigService configService;
     private final TransferGrpcService transferGrpcService;
+    private final RemainReturnTransferService  remainReturnTransferService;
 
     private final ExOrderDao exOrderDao;
     private final ExTradeDao exTradeDao;
-    private final ConfigAccountTypeRepository configAccountTypeRepository;
 
     @Transactional
     public void handleTradeTransfer(String pair, List<ExTradeDto> exTradeDtos, StreamObserver<TransferResponse> responseObserver) {
         log.debug("handleTradeTransfer pair={}, aggregateTradeEvent={}", pair, exTradeDtos);
         PairConfigDto pairConfig = configService.findPairConfigByPair(pair);
         String orderTable = pairConfig.getOrderTable();
+
+        List<Long> orderIds = new ArrayList<>();
         for (ExTradeDto exTradeDto : exTradeDtos) {
-            ExTradeEntity exTrade = exTradeDto.toEntity();
+            orderIds.add(exTradeDto.getBidId());
+            orderIds.add(exTradeDto.getAskId());
+        }
 
-            Long mmOrderId;
-            if (OrderLeverType.MARKET_MAKING_ORDER.value == exTrade.getBuyType()) {
-                mmOrderId = exOrderDao.insert(exTradeDto.toMMExOrderEntity(mmChainupId, OrderSide.BUY), orderTable);
-                exTrade.setBidId(mmOrderId);
-            } else if (OrderLeverType.MARKET_MAKING_ORDER.value == exTrade.getSellType()) {
-                mmOrderId = exOrderDao.insert(exTradeDto.toMMExOrderEntity(mmChainupId, OrderSide.SELL), orderTable);
-                exTrade.setAskId(mmOrderId);
-            }
+        Map<Long, ExOrderEntity> exOrderEntityMap = exOrderDao.findByIdIn(orderIds, orderTable).stream().collect(Collectors.toMap(ExOrderEntity::getId, e -> e));
+        List<ExTradeEntity> insertExTradeEntityList = new ArrayList<>();
+        List<ExOrderEntity> updateExOrderEntityList = new ArrayList<>();
+        for (ExTradeDto exTradeDto : exTradeDtos) {
+            ExOrderEntity bid = exOrderEntityMap.get(exTradeDto.getBidId());
+            ExOrderEntity ask = exOrderEntityMap.get(exTradeDto.getAskId());
 
-            List<ExOrderEntity> exOrderEntityList = exOrderDao.findByIdIn(List.of(exTrade.getBidId(), exTrade.getAskId()), orderTable);
-            ExOrderEntity bid = exOrderEntityList.stream().filter(o -> exTrade.getBidId().equals(o.getId())).findFirst().orElse(null);
-            ExOrderEntity ask = exOrderEntityList.stream().filter(o -> exTrade.getAskId().equals(o.getId())).findFirst().orElse(null);
+            updateOrder(exTradeDto, bid, pairConfig, updateExOrderEntityList);
+            updateOrder(exTradeDto, ask, pairConfig, updateExOrderEntityList);
+            log.debug("[handleTradeTransfer] exTradeDto={}, bid={}, ask={}", exTradeDto, bid, ask);
+            insertExTradeEntityList.add(exTradeDto.toEntity());
+        }
 
-            updateOrder(exTrade, bid, pairConfig);
-            updateOrder(exTrade, ask, pairConfig);
-            log.debug("[handleTradeTransfer] exTrade={}, bid={}, ask={}", exTrade, bid, ask);
+        exTradeDao.batchInsert(insertExTradeEntityList, pairConfig.getTradeTable());
+        exOrderDao.batchUpsert(updateExOrderEntityList, orderTable);
 
-            Long tradeId = exTradeDao.insert(exTrade, pairConfig.getTradeTable());
-            exTrade.setId(tradeId);
-            log.info("[handleTradeTransfer] tradeId={}, exTrade={}", tradeId, exTrade);
+        for (ExTradeEntity exTrade : insertExTradeEntityList) {
+            log.info("[handleTradeTransfer] exTrade={}", exTrade);
 
+            ExOrderEntity bid = exOrderEntityMap.get(exTrade.getBidId());
+            ExOrderEntity ask = exOrderEntityMap.get(exTrade.getAskId());
             List<TransferRequest> requests = new ArrayList<>();
             requests.add(quoteAmountTransfer(exTrade, bid, ask, pairConfig));
             requests.add(baseAmountTransfer(exTrade, bid, ask, pairConfig));
             requests.add(sellFeeTransfer(exTrade, bid, ask, pairConfig));
             requests.add(buyFeeTransfer(exTrade, bid, ask, pairConfig));
 
-            TransferListRequest tradeTransferListRequest = TransferListRequest.newBuilder().addAllRequests(requests).setRequestId(UUIDv7Generator.generate()).build();
+            TransferListRequest tradeTransferListRequest = TransferListRequest.newBuilder()
+                    .addAllRequests(requests).setRequestId(exTrade.getTradeNonce()).build();
             transferGrpcService.transfer(tradeTransferListRequest, responseObserver);
-            requests.clear();
 
-            handleRemainMoney(bid, pairConfig, requests);
-            handleRemainMoney(ask, pairConfig, requests);
-            if (!requests.isEmpty()) {
-                TransferListRequest remainReturnTransferListRequest = TransferListRequest.newBuilder().addAllRequests(requests).setRequestId(UUIDv7Generator.generate()).build();
-                transferGrpcService.transfer(remainReturnTransferListRequest, responseObserver);
-            }
+            remainReturnTransferService.handleRemainMoney(bid, pairConfig, responseObserver);
+            remainReturnTransferService.handleRemainMoney(ask, pairConfig, responseObserver);
         }
     }
 
-    private void updateOrder(ExTradeEntity exTrade, ExOrderEntity exOrder, PairConfigDto pairConfig) {
+    private void updateOrder(ExTradeDto exTrade, ExOrderEntity exOrder, PairConfigDto pairConfig, List<ExOrderEntity> updateExOrderEntityList) {
         if (exOrder == null) {
             return;
         }
@@ -153,45 +152,8 @@ public class TradeTransferService {
         exOrder.setMtime(updateTime);
 
         OrderStatus status = exOrder.isFilled(pairConfig) ? OrderStatus.FILLED : OrderStatus.PART_FILLED;
-        exOrderDao.updateOrder(exOrder.getId(), status, fee, exTrade.getVolume(), dealMoney, orderAvgPrice, updateTime, pairConfig.getOrderTable());
-    }
-
-    private void handleRemainMoney(ExOrderEntity exOrder, PairConfigDto pairConfig, List<TransferRequest> requests) {
-        if (exOrder == null || OrderLeverType.MARKET_MAKING_ORDER == exOrder.getOrderType()) {
-            return;
-        }
-
-        if (exOrder.isMarginOrder()) {
-            if (exOrder.isFilled(pairConfig)) {
-                exOrderDao.updateStatus(exOrder.getId(), OrderStatus.FILLED, pairConfig.getOrderTable());
-            }
-            return;
-        }
-
-        if (!exOrder.isFilled(pairConfig)) {
-            return;
-        }
-
-        BigDecimal remainAmount = exOrder.getRemainAmount();
-        if (remainAmount.compareTo(BigDecimal.ZERO) > 0) {
-            Pair<Integer, Integer> remainAccountTypes = getRemainAccountTypes(exOrder, pairConfig);
-            TransferRequest.Builder trans = TransferRequest.newBuilder()
-                    .setFromUid(exOrder.getUserId()).setFromType(remainAccountTypes.getLeft())
-                    .setToUid(exOrder.getUserId()).setToType(remainAccountTypes.getRight())
-                    .setAmount(remainAmount.toPlainString())
-                    .setRefType(pairConfig.getOrderTable())
-                    .setRefId(exOrder.getId())
-                    .setMeta(getRemainMeta(exOrder))
-                    .setScene(TransactionScene.CANCEL_TRADE.value)
-                    .setOpUid(SYSTEM_CHAINUP_ID)
-                    .setOpIp(StringUtils.EMPTY);
-            if (exOrder.isRelatedSubAccount()) {
-                String subAccountType = OrderSide.BUY == exOrder.getSide() ? exOrder.getQuoteSubaccountType() : exOrder.getBaseSubaccountType();
-                trans.setFromSubType(subAccountType);
-                trans.setToSubType(subAccountType);
-            }
-            requests.add(trans.build());
-        }
+        exOrder.setStatus(status);
+        updateExOrderEntityList.add(exOrder);
     }
 
     private TransferRequest quoteAmountTransfer(ExTradeEntity exTradeEntity, ExOrderEntity bid, ExOrderEntity ask, PairConfigDto pairConfig) {
@@ -376,68 +338,4 @@ public class TradeTransferService {
                 "trade.transfer.quoteFeeAmount." + feeCoin : "trade.transfer.baseFeeAmount." + feeCoin;
     }
 
-    private String getRemainMeta(ExOrderEntity exOrder) {
-        String meta;
-        if (exOrder.getSide() == OrderSide.BUY) {
-            if (exOrder.isMarketOrder()) {
-                meta = "order.unlock.returnMarketOrderQuoteAmount";
-            } else {
-                meta = "order.unlock.remainQuoteAmount";
-            }
-        } else {
-            if (exOrder.isMarketOrder()) {
-                meta = "order.unlock.returnMarketOrderBaseAmount";
-            } else {
-                meta = "order.unlock.remainBaseAmount";
-            }
-        }
-        return meta;
-    }
-
-    private Pair<Integer, Integer> getRemainAccountTypes(ExOrderEntity exOrder, PairConfigDto pairConfig) {
-        Integer fromType;
-        Integer toType;
-        if (OrderSide.BUY == exOrder.getSide()) {
-            if (exOrder.isGridOrder() || exOrder.isGridMarginOrder()) {
-                // Grid or Grid Margin
-                fromType = exOrder.getQuoteAccountType();
-                AssetType_A_BC assetType = exOrder.isGridOrder() ? AssetType_A_BC.U_GRID_NORMAL : AssetType_A_BC.U_GRID_MARGIN_NORMAL;
-
-                String quoteCoin = "'" + pairConfig.getQuote().toUpperCase() + "'";
-                ConfigAccountTypeEntity configAccountType = configAccountTypeRepository.findByAssetAAndAssetBcAndCoinSymbol(assetType.account_A,
-                        assetType.account_BC, quoteCoin);
-                toType = configAccountType.getAssetType();
-            } else if (exOrder.isMarginOrder()) {
-                fromType = exOrder.getQuoteAccountType();
-                toType = pairConfig.getQuoteAccountNormal();
-            } else if (exOrder.isConvertOrder() && exOrder.getQuoteAccountType() != null) {
-                fromType = exOrder.getQuoteAccountType();
-                toType = pairConfig.getQuoteAccountNormal();
-            } else {
-                fromType = pairConfig.getQuoteAccountLock();
-                toType = pairConfig.getQuoteAccountNormal();
-            }
-        } else {
-            if (exOrder.isGridOrder() || exOrder.isGridMarginOrder()) {
-                // Grid
-                fromType = exOrder.getBaseAccountType();
-                AssetType_A_BC assetType = exOrder.isGridOrder() ? AssetType_A_BC.U_GRID_NORMAL : AssetType_A_BC.U_GRID_MARGIN_NORMAL;
-
-                String baseCoin = "'" + pairConfig.getBase().toUpperCase() + "'";
-                ConfigAccountTypeEntity configAccountType = configAccountTypeRepository.findByAssetAAndAssetBcAndCoinSymbol(assetType.account_A,
-                        assetType.account_BC, baseCoin);
-                toType = configAccountType.getAssetType();
-            } else if (exOrder.isMarginOrder()) {
-                fromType = exOrder.getBaseAccountType();
-                toType = pairConfig.getBaseAccountNormal();
-            } else if (exOrder.isConvertOrder() && exOrder.getBaseAccountType() != null) {
-                fromType = exOrder.getBaseAccountType();
-                toType = pairConfig.getBaseAccountNormal();
-            } else {
-                fromType = pairConfig.getBaseAccountLock();
-                toType = pairConfig.getBaseAccountNormal();
-            }
-        }
-        return Pair.of(fromType, toType);
-    }
 }
