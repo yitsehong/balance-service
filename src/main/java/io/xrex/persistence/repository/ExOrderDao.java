@@ -168,6 +168,22 @@ public class ExOrderDao {
         return jdbcTemplate.query(sql, ids.toArray(), new ExOrderEntityRowMapper());
     }
 
+    public List<ExOrderEntity> findByUserIdAndStatus(Integer chainupId, OrderStatus status, String tableName) {
+        isValidTableName(tableName);
+        String sql = String.format("SELECT * FROM %s WHERE user_id = ? AND status = ?", tableName);
+        return jdbcTemplate.query(sql, new Object[] {chainupId, status.value}, new ExOrderEntityRowMapper());
+    }
+
+    public List<ExOrderEntity> findPendingCancelByIdIn(List<Long> ids, String tableName) {
+        isValidTableName(tableName);
+        if (ids == null || ids.isEmpty()) {
+            return new ArrayList<>();
+        }
+        String inClause = String.join(",", java.util.Collections.nCopies(ids.size(), "?"));
+        String sql = "SELECT * FROM " + tableName + " WHERE id IN (" + inClause + ") AND status = 5";
+        return jdbcTemplate.query(sql, ids.toArray(), new ExOrderEntityRowMapper());
+    }
+
     public int updateStatus(Long id, OrderStatus newStatus, String tableName) {
         isValidTableName(tableName);
         String sql = "UPDATE " + tableName + " SET status = ?, mtime = ? WHERE id = ?  AND status IN (0,1,3)";

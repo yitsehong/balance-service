@@ -94,11 +94,13 @@ public class TestController {
         Integer chainupId = 19914;
         ExTradeEntity latestTrade = exTradeDao.findLatestTrade(tradeTable);
         BigDecimal tradePrice = latestTrade.getPrice();
-        StreamObserver<TransferResponse> responseObserver = build();
+        BigDecimal spendMoney = new BigDecimal("1000");
+        BigDecimal volume = spendMoney.divide(latestTrade.getPrice(), 10, RoundingMode.DOWN);
+
+        List<ExOrderEntity> exOrderEntityList = new ArrayList<>();
         for (int i = 0; i < loop; i++) {
-            BigDecimal spendMoney = new BigDecimal("1000");
             LocalDateTime now = LocalDateTime.now();
-            BigDecimal volume = spendMoney.divide(latestTrade.getPrice(), 10, RoundingMode.DOWN);
+
             BigDecimal dealMoney = tradePrice.multiply(volume);
             ExOrderEntity marketOrder = ExOrderEntity.builder()
                     .userId(chainupId).side(OrderSide.BUY)
@@ -114,42 +116,53 @@ public class TestController {
                     .fee(BigDecimal.ZERO).feeCoinRate(BigDecimal.ZERO.doubleValue()).dealVolume(volume).dealMoney(dealMoney).avgPrice(tradePrice).lockedAmount(volume)
                     .status(OrderStatus.FILLED).type(OrderType.LIMIT).ctime(now).mtime(now).source(OrderSourceType.WEB).orderType(OrderLeverType.MARKET_MAKING_ORDER)
                     .build();
-            List<Long> orderIds = exOrderDao.batchInsert(List.of(marketOrder, mmOrder), orderTable);
-            Long orderId = orderIds.getFirst();
+            exOrderEntityList.add(marketOrder);
+            exOrderEntityList.add(mmOrder);
+        }
+        List<Long> orderIds = exOrderDao.batchInsert(exOrderEntityList, orderTable);
+        log.info("finish create test orders, size={}", orderIds.size());
 
-            List<TransferRequest> requests = new ArrayList<>();
+        List<ExOrderEntity> userOrders = exOrderDao.findByUserIdAndStatus(chainupId, OrderStatus.INIT, orderTable);
+        StreamObserver<TransferResponse> responseObserver = build();
+        List<TransferRequest> requests = new ArrayList<>();
+        List<TradeEventDto> events = new ArrayList<>();
+        for (ExOrderEntity order : userOrders) {
             TransferRequest request = TransferRequest.newBuilder()
                     .setFromUid(chainupId).setFromType(fromType).setToUid(chainupId).setToType(toType)
                     .setAmount(spendMoney.toPlainString()).setScene(TransactionScene.CREATE_ORDER.value).setMeta("0")
-                    .setRefType(orderTable).setRefId(orderId).setOpUid(chainupId).setOpIp(StringUtils.EMPTY)
+                    .setRefType(orderTable).setRefId(order.getId()).setOpUid(chainupId).setOpIp(StringUtils.EMPTY)
                     .build();
             requests.add(request);
-            TransferListRequest listRequest = TransferListRequest.newBuilder().addAllRequests(requests).setRequestId(UUIDv7Generator.generate()).build();
-            transferGrpcService.transfer(listRequest, responseObserver);
 
             TradeEventDto tradeEventDto = TradeEventDto.builder()
                     .pair(pair)
                     .trade(ExTradeDto.builder()
                             .price(latestTrade.getPrice())
                             .volume(volume)
-                            .bidId(orderId)
+                            .bidId(order.getId())
                             .askId(orderIds.getLast())
-                            .trendSide(marketOrder.getSide().value)
+                            .trendSide(order.getSide().value)
                             .bidUserId(chainupId)
                             .askUserId(mmChainupId)
                             .buyFee(BigDecimal.ZERO)
                             .sellFee(BigDecimal.ZERO)
                             .buyFeeCoin(null)
                             .sellFeeCoin(null)
-                            .ctime(now).mtime(now)
+                            .ctime(order.getCtime()).mtime(order.getMtime())
                             .buyType(OrderLeverType.NORMAL_ORDER.value)
                             .sellType(OrderLeverType.MARKET_MAKING_ORDER.value)
                             .tradeNonce(UUIDv7Generator.generate())
                             .build())
                     .eventTime(LocalDateTime.now()).build();
-            testKafkaTemplate.send(tradeEventTopic, tradeTable, tradeEventDto);
+            events.add(tradeEventDto);
         }
+        TransferListRequest listRequest = TransferListRequest.newBuilder().addAllRequests(requests).setRequestId(UUIDv7Generator.generate()).build();
+        transferGrpcService.transfer(listRequest, responseObserver);
 
+        log.info("start to send trade event");
+        for (TradeEventDto event : events) {
+            testKafkaTemplate.send(tradeEventTopic, tradeTable, event);
+        }
     }
 
     @PostMapping("/api/v2/test")

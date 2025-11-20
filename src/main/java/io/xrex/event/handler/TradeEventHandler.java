@@ -1,15 +1,10 @@
 package io.xrex.event.handler;
 
-import io.grpc.stub.StreamObserver;
 import io.xrex.dto.CancelOrderIdDto;
 import io.xrex.dto.event.CancelOrderEventDto;
 import io.xrex.dto.event.ExTradeDto;
 import io.xrex.dto.event.TradeEventDto;
-import io.xrex.grpc.TransferListRequest;
-import io.xrex.grpc.TransferResponse;
-import io.xrex.service.OrderTransferService;
-import io.xrex.service.TradeTransferService;
-import io.xrex.service.grpc.TransferGrpcService;
+import io.xrex.service.trade.TradeTransferService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
@@ -17,7 +12,10 @@ import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.support.Acknowledgment;
 import org.springframework.stereotype.Component;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 
@@ -27,8 +25,6 @@ import java.util.concurrent.ExecutorService;
 public class TradeEventHandler {
 
     private final TradeTransferService tradeTransferService;
-    private final TransferGrpcService transferGrpcService;
-    private final OrderTransferService orderTransferService;
     private final ExecutorService virtualThreadExecutor;
 
     @KafkaListener(topicPattern = "${app.kafka.trade-event.topic}", groupId = "${app.kafka.trade-event.group}", containerFactory = "tradeEventFactory")
@@ -39,6 +35,7 @@ public class TradeEventHandler {
         }
 
         try {
+            long start = System.currentTimeMillis();
             Map<String, List<ExTradeDto>> eventsByPair = new HashMap<>();
             for (ConsumerRecord<String, TradeEventDto> record : records) {
                 eventsByPair.computeIfAbsent(record.value().getPair(), _ -> new ArrayList<>()).add(record.value().getTrade());
@@ -49,21 +46,13 @@ public class TradeEventHandler {
                 if (entry.getValue().isEmpty()) {
                     continue;
                 }
-
-                CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
-                    try {
-                        tradeTransferService.handleTradeTransfer(entry.getKey(), entry.getValue(), buildResponseObserver());
-                    } catch (Exception e) {
-                        log.error("Failed to process trade event batch. Error: {}", e.getMessage(), e);
-                        // TODO: Consider sending all failed records to a dead-letter queue for manual inspection.
-                    }
-                }, virtualThreadExecutor);
-                futures.add(future);
+                futures.add(CompletableFuture.runAsync(() -> tradeTransferService.handleTradeTransfer(entry.getKey(), entry.getValue()), virtualThreadExecutor));
             }
 
             // Wait for all aggregated events to complete processing.
             CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
-            log.info("All {} records processed.", records.size());
+            long end = System.currentTimeMillis();
+            log.info("Trade event transfer complete in {} ms with {} records", (end - start), records.size());
         } finally {
             acknowledgment.acknowledge();
         }
@@ -77,8 +66,6 @@ public class TradeEventHandler {
         }
 
         try {
-            long start = System.currentTimeMillis();
-            StreamObserver<TransferResponse> responseObserver = buildResponseObserver();
             Map<CancelOrderIdDto, List<Long>> userPairCancelOrderIds = new HashMap<>();
             for (ConsumerRecord<String, CancelOrderEventDto> record : records) {
                 CancelOrderEventDto event = record.value();
@@ -87,12 +74,8 @@ public class TradeEventHandler {
             }
 
             for (Map.Entry<CancelOrderIdDto, List<Long>> entry : userPairCancelOrderIds.entrySet()) {
-                TransferListRequest transferListRequest = orderTransferService.handleCancelOrderTransfer(entry.getKey(), entry.getValue());
-                if (transferListRequest.getRequestsCount() > 0) {
-                    transferGrpcService.transfer(transferListRequest, responseObserver);
-                }
+                tradeTransferService.handleCancelOrderTransfer(entry.getKey(), entry.getValue());
             }
-            log.info("cancel order time={}ms", System.currentTimeMillis() - start);
         } catch (Exception e) {
             // Log the error for the specific mini-batch and continue with the next
             // This enhances resilience, preventing one bad batch from stopping the entire poll.
@@ -103,22 +86,4 @@ public class TradeEventHandler {
         }
     }
 
-    private StreamObserver<TransferResponse> buildResponseObserver() {
-        return new StreamObserver<>() {
-            @Override
-            public void onNext(TransferResponse value) {
-                log.debug("[TradeEventHandler.handleTradeEventTransfer] transfer submitted to Raft: code={}, response={}", value.getCode(), value.getData());
-            }
-
-            @Override
-            public void onError(Throwable t) {
-                log.error("TradeEventHandler.handleTradeEventTransfer] transfer submitted error", t);
-            }
-
-            @Override
-            public void onCompleted() {
-                //log.info("Test transfer stream completed.");
-            }
-        };
-    }
 }
