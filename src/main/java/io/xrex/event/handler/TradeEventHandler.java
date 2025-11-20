@@ -35,7 +35,6 @@ public class TradeEventHandler {
         }
 
         try {
-            long start = System.currentTimeMillis();
             Map<String, List<ExTradeDto>> eventsByPair = new HashMap<>();
             for (ConsumerRecord<String, TradeEventDto> record : records) {
                 eventsByPair.computeIfAbsent(record.value().getPair(), _ -> new ArrayList<>()).add(record.value().getTrade());
@@ -51,8 +50,6 @@ public class TradeEventHandler {
 
             // Wait for all aggregated events to complete processing.
             CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
-            long end = System.currentTimeMillis();
-            log.info("Trade event transfer complete in {} ms with {} records", (end - start), records.size());
         } finally {
             acknowledgment.acknowledge();
         }

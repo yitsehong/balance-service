@@ -65,7 +65,7 @@ public class ExOrderTradeService {
         exTradeDao.batchInsert(insertExTradeEntityList, pairConfig.getTradeTable());
         long t2 = System.currentTimeMillis();
         exOrderDao.batchUpsert(updateExOrderEntityList, pairConfig.getOrderTable());
-        log.info("updateExOrderByExTrade insert={}ms, upsert={}ms", (t2 - t1), (System.currentTimeMillis() - t2));
+        log.debug("updateExOrderByExTrade insert={}ms, upsert={}ms", (t2 - t1), (System.currentTimeMillis() - t2));
         return insertExTradeEntityList;
     }
 

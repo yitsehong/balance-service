@@ -54,7 +54,8 @@ public class TradeTransferService {
 
                 exOrderTradeService.handleRemainOrder(bid, ask, pairConfig, responseObserver);
             }
-            log.info("[handleTradeTransfer] pair={}, record size={}, query order={}ms, update order={}ms, transfer={}ms", pair, exTrades.size(), (t2 - t1), (t3 - t2), (System.currentTimeMillis() - t3));
+            long t4 = System.currentTimeMillis();
+            log.info("[handleTradeTransfer] pair={}, record size={}, query order={}ms, update order={}ms, transfer={}ms, total={}ms", pair, exTrades.size(), (t2 - t1), (t3 - t2), (t4 - t3), (t4 - t1));
         } catch (Exception e) {
             log.error("Failed to process trade event batch. Error: {}", e.getMessage(), e);
             // TODO: Consider sending all failed records to a dead-letter queue for manual inspection.
