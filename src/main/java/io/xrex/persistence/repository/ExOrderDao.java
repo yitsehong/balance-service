@@ -102,40 +102,40 @@ public class ExOrderDao {
                         avg_price = IF(VALUES(avg_price) IS NOT NULL, VALUES(avg_price), avg_price),
                         mtime = IF(VALUES(mtime) IS NOT NULL, VALUES(mtime), mtime)
                     """;
-        log.info("Batch Upsert SQL={}", sql);
         jdbcTemplate.update(con -> {
             PreparedStatement ps = con.prepareStatement(sql);
+            int idx = 1;
             for (ExOrderEntity order : updateOrders) {
-                ps.setLong(1, order.getId());
-                ps.setInt(2, order.getUserId());
-                ps.setString(3, order.getSide().name());
-                ps.setBigDecimal(4, order.getPrice());
-                ps.setBigDecimal(5, order.getVolume());
-                ps.setInt(6, order.getFeeAccountType());
-                ps.setInt(7, order.getFeeDeductType().value);
-                ps.setDouble(8, order.getFeeRateMaker());
-                ps.setDouble(9, order.getFeeRateTaker());
-                ps.setBigDecimal(10, order.getFee());
-                ps.setDouble(11, order.getFeeCoinRate());
-                ps.setBigDecimal(12, order.getDealVolume());
-                ps.setBigDecimal(13, order.getDealMoney());
-                ps.setBigDecimal(14, order.getAvgPrice());
-                ps.setBigDecimal(15, order.getLockedAmount());
-                ps.setByte(16, order.getStatus().value);
-                ps.setByte(17, order.getType().value);
-                ps.setTimestamp(18, Timestamp.valueOf(order.getCtime()));
-                ps.setTimestamp(19, Timestamp.valueOf(order.getMtime()));
-                ps.setByte(20, order.getSource().value);
-                ps.setByte(21, order.getOrderType().value);
-                ps.setBigDecimal(22, order.getStopPrice());
-                if (order.getStopPriceDirection() != null) ps.setByte(23, order.getStopPriceDirection().value); else ps.setNull(23, Types.TINYINT);
-                ps.setInt(24, order.getQuoteAccountType());
-                ps.setString(25, order.getQuoteSubaccountType());
-                ps.setInt(26, order.getBaseAccountType());
-                ps.setString(27, order.getBaseSubaccountType());
-                ps.setLong(28, order.getMarginTradeId());
-                ps.setString(29, order.getMarginDirection());
-                ps.setLong(30, order.getBotId());
+                ps.setLong(idx++, order.getId());
+                ps.setInt(idx++, order.getUserId());
+                ps.setString(idx++, order.getSide().name());
+                ps.setBigDecimal(idx++, order.getPrice());
+                ps.setBigDecimal(idx++, order.getVolume());
+                ps.setInt(idx++, order.getFeeAccountType());
+                ps.setInt(idx++, order.getFeeDeductType().value);
+                ps.setDouble(idx++, order.getFeeRateMaker());
+                ps.setDouble(idx++, order.getFeeRateTaker());
+                ps.setBigDecimal(idx++, order.getFee());
+                ps.setDouble(idx++, order.getFeeCoinRate());
+                ps.setBigDecimal(idx++, order.getDealVolume());
+                ps.setBigDecimal(idx++, order.getDealMoney());
+                ps.setBigDecimal(idx++, order.getAvgPrice());
+                ps.setBigDecimal(idx++, order.getLockedAmount());
+                ps.setByte(idx++, order.getStatus().value);
+                ps.setByte(idx++, order.getType().value);
+                ps.setTimestamp(idx++, Timestamp.valueOf(order.getCtime()));
+                ps.setTimestamp(idx++, Timestamp.valueOf(order.getMtime()));
+                ps.setByte(idx++, order.getSource().value);
+                ps.setByte(idx++, order.getOrderType().value);
+                ps.setBigDecimal(idx++, order.getStopPrice());
+                if (order.getStopPriceDirection() != null) ps.setByte(idx++, order.getStopPriceDirection().value); else ps.setNull(idx++, Types.TINYINT);
+                ps.setInt(idx++, order.getQuoteAccountType());
+                ps.setString(idx++, order.getQuoteSubaccountType());
+                ps.setInt(idx++, order.getBaseAccountType());
+                ps.setString(idx++, order.getBaseSubaccountType());
+                ps.setLong(idx++, order.getMarginTradeId());
+                ps.setString(idx++, order.getMarginDirection());
+                ps.setLong(idx++, order.getBotId());
             }
 
             return ps;
