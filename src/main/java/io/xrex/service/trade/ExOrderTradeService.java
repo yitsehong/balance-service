@@ -132,6 +132,7 @@ public class ExOrderTradeService {
             orderIds.add(exTrade.getBidId());
             orderIds.add(exTrade.getAskId());
         }
+        orderIds = orderIds.stream().sorted(Long::compareTo).toList();
         return exOrderDao.findByIdIn(orderIds, pairConfig.getOrderTable()).stream().collect(Collectors.toMap(ExOrderEntity::getId, e -> e));
     }
 

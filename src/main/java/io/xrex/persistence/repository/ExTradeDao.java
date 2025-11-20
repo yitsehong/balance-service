@@ -4,12 +4,18 @@ import io.xrex.persistence.entity.ExTradeEntity;
 import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.BeanPropertyRowMapper;
 import org.springframework.jdbc.core.JdbcTemplate;
+import io.xrex.persistence.entity.ExTradeEntity;
+import lombok.RequiredArgsConstructor;
+import org.springframework.jdbc.core.BeanPropertyRowMapper;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.jdbc.support.KeyHolder;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.sql.Connection;
 import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.Statement;
 import java.sql.Timestamp;
 import java.sql.Types;
@@ -24,34 +30,44 @@ public class ExTradeDao {
 
     @Transactional
     public void batchInsert(List<ExTradeEntity> trades, String tableName) {
+        if (trades == null || trades.isEmpty()) {
+            return;
+        }
         isValidTableName(tableName);
         String sql = "INSERT INTO " + tableName + " (price, volume, bid_id, ask_id, trend_side, bid_user_id, ask_user_id, " +
                 "buy_fee, sell_fee, buy_fee_coin, sell_fee_coin, ctime, mtime, buy_type, sell_type) " +
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
-        for (ExTradeEntity trade : trades) {
-            KeyHolder keyHolder = new GeneratedKeyHolder();
-            jdbcTemplate.update(connection -> {
-                PreparedStatement ps = connection.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS);
-                if (trade.getPrice() != null) ps.setBigDecimal(1, trade.getPrice()); else ps.setNull(1, Types.DECIMAL);
-                if (trade.getVolume() != null) ps.setBigDecimal(2, trade.getVolume()); else ps.setNull(2, Types.DECIMAL);
-                if (trade.getBidId() != null) ps.setLong(3, trade.getBidId()); else ps.setNull(3, Types.BIGINT);
-                if (trade.getAskId() != null) ps.setLong(4, trade.getAskId()); else ps.setNull(4, Types.BIGINT);
-                if (trade.getTrendSide() != null) ps.setString(5, trade.getTrendSide()); else ps.setNull(5, Types.VARCHAR);
-                if (trade.getBidUserId() != null) ps.setInt(6, trade.getBidUserId()); else ps.setNull(6, Types.INTEGER);
-                if (trade.getAskUserId() != null) ps.setInt(7, trade.getAskUserId()); else ps.setNull(7, Types.INTEGER);
-                if (trade.getBuyFee() != null) ps.setBigDecimal(8, trade.getBuyFee()); else ps.setNull(8, Types.DECIMAL);
-                if (trade.getSellFee() != null) ps.setBigDecimal(9, trade.getSellFee()); else ps.setNull(9, Types.DECIMAL);
-                if (trade.getBuyFeeCoin() != null) ps.setString(10, trade.getBuyFeeCoin()); else ps.setNull(10, Types.VARCHAR);
-                if (trade.getSellFeeCoin() != null) ps.setString(11, trade.getSellFeeCoin()); else ps.setNull(11, Types.VARCHAR);
-                if (trade.getCtime() != null) ps.setTimestamp(12, Timestamp.valueOf(trade.getCtime())); else ps.setNull(12, Types.TIMESTAMP);
-                if (trade.getMtime() != null) ps.setTimestamp(13, Timestamp.valueOf(trade.getMtime())); else ps.setNull(13, Types.TIMESTAMP);
-                if (trade.getBuyType() != null) ps.setByte(14, trade.getBuyType()); else ps.setNull(14, Types.TINYINT);
-                if (trade.getSellType() != null) ps.setByte(15, trade.getSellType()); else ps.setNull(15, Types.TINYINT);
-                return ps;
-            }, keyHolder);
-            trade.setId(keyHolder.getKey().longValue());
-        }
+        jdbcTemplate.execute((Connection con) -> {
+            try (PreparedStatement ps = con.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
+                for (ExTradeEntity trade : trades) {
+                    if (trade.getPrice() != null) ps.setBigDecimal(1, trade.getPrice()); else ps.setNull(1, Types.DECIMAL);
+                    if (trade.getVolume() != null) ps.setBigDecimal(2, trade.getVolume()); else ps.setNull(2, Types.DECIMAL);
+                    if (trade.getBidId() != null) ps.setLong(3, trade.getBidId()); else ps.setNull(3, Types.BIGINT);
+                    if (trade.getAskId() != null) ps.setLong(4, trade.getAskId()); else ps.setNull(4, Types.BIGINT);
+                    if (trade.getTrendSide() != null) ps.setString(5, trade.getTrendSide()); else ps.setNull(5, Types.VARCHAR);
+                    if (trade.getBidUserId() != null) ps.setInt(6, trade.getBidUserId()); else ps.setNull(6, Types.INTEGER);
+                    if (trade.getAskUserId() != null) ps.setInt(7, trade.getAskUserId()); else ps.setNull(7, Types.INTEGER);
+                    if (trade.getBuyFee() != null) ps.setBigDecimal(8, trade.getBuyFee()); else ps.setNull(8, Types.DECIMAL);
+                    if (trade.getSellFee() != null) ps.setBigDecimal(9, trade.getSellFee()); else ps.setNull(9, Types.DECIMAL);
+                    if (trade.getBuyFeeCoin() != null) ps.setString(10, trade.getBuyFeeCoin()); else ps.setNull(10, Types.VARCHAR);
+                    if (trade.getSellFeeCoin() != null) ps.setString(11, trade.getSellFeeCoin()); else ps.setNull(11, Types.VARCHAR);
+                    if (trade.getCtime() != null) ps.setTimestamp(12, Timestamp.valueOf(trade.getCtime())); else ps.setNull(12, Types.TIMESTAMP);
+                    if (trade.getMtime() != null) ps.setTimestamp(13, Timestamp.valueOf(trade.getMtime())); else ps.setNull(13, Types.TIMESTAMP);
+                    if (trade.getBuyType() != null) ps.setByte(14, trade.getBuyType()); else ps.setNull(14, Types.TINYINT);
+                    if (trade.getSellType() != null) ps.setByte(15, trade.getSellType()); else ps.setNull(15, Types.TINYINT);
+                    ps.addBatch();
+                }
+                ps.executeBatch();
+                try (ResultSet rs = ps.getGeneratedKeys()) {
+                    int i = 0;
+                    while (rs.next() && i < trades.size()) {
+                        trades.get(i++).setId(rs.getLong(1));
+                    }
+                }
+            }
+            return null;
+        });
     }
 
     public Long insert(ExTradeEntity trade, String tableName) {

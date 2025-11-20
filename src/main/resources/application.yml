@@ -82,7 +82,7 @@ app:
     trade-event:
       topic: t.balance-service.trade-event
       group: g.balance-service.trade-event
-      max-poll-records: 100
+      max-poll-records: 500
     cancel-order-event:
       topic: t.balance-service.cancel-order-event
       group: g.balance-service.cancel-order-event
