@@ -1,6 +1,7 @@
 package io.xrex.controller;
 
 import io.grpc.stub.StreamObserver;
+import io.xrex.dto.event.CancelOrderEventDto;
 import io.xrex.dto.event.ExTradeDto;
 import io.xrex.dto.event.TradeEventDto;
 import io.xrex.enums.*;
@@ -33,12 +34,15 @@ import java.util.concurrent.ThreadLocalRandom;
 public class TestController {
 
     private final TransferGrpcService transferGrpcService;
-    private final KafkaTemplate<String, TradeEventDto> testKafkaTemplate;
+    private final KafkaTemplate<String, TradeEventDto> tradeKafkaTemplate;
+    private final KafkaTemplate<String, CancelOrderEventDto> cancelKafkaTemplate;
     private final ExTradeDao exTradeDao;
     private final ExOrderDao exOrderDao;
 
     @Value("${app.kafka.trade-event.topic}")
     private String tradeEventTopic;
+    @Value("${app.kafka.cancel-order-event.topic}")
+    private String cancelEventTopic;
     @Value("${balance-service.mm-chainup-id}")
     private Integer mmChainupId;
 
@@ -161,7 +165,64 @@ public class TestController {
 
         log.info("start to send trade event");
         for (TradeEventDto event : events) {
-            testKafkaTemplate.send(tradeEventTopic, tradeTable, event);
+            tradeKafkaTemplate.send(tradeEventTopic, tradeTable, event);
+        }
+    }
+
+    @PostMapping("/api/v1/test_cancel")
+    public void testCancel(@RequestParam(value = "loop") int loop) {
+        String base = "btc";
+        String quote = "twd";
+        String pair = base + quote;
+        Integer fromType = 2011013;
+        Integer toType = 2021013;
+        BigDecimal feeRate = new BigDecimal("0.001");
+
+        String orderTable = "ex_order_" + pair;
+        Integer chainupId = 19914;
+
+        BigDecimal price = new BigDecimal("2500000");
+        BigDecimal volume = new BigDecimal("0.0002");
+        BigDecimal lockAmount = price.multiply(volume);
+
+        List<ExOrderEntity> exOrderEntityList = new ArrayList<>();
+        for (int i = 0; i < loop; i++) {
+            LocalDateTime now = LocalDateTime.now();
+            ExOrderEntity limitOrder = ExOrderEntity.builder()
+                    .userId(chainupId).side(OrderSide.BUY)
+                    .price(price).volume(volume)
+                    .feeDeductType(FeeDeductType.INNER).feeRateTaker(feeRate.doubleValue()).feeRateMaker(feeRate.doubleValue())
+                    .fee(BigDecimal.ZERO).feeCoinRate(BigDecimal.ZERO.doubleValue()).dealVolume(BigDecimal.ZERO).dealMoney(BigDecimal.ZERO).avgPrice(BigDecimal.ZERO).lockedAmount(lockAmount)
+                    .status(OrderStatus.PENDING_CANCEL).type(OrderType.LIMIT).ctime(now).mtime(now).source(OrderSourceType.WEB).orderType(OrderLeverType.NORMAL_ORDER)
+                    .build();
+            exOrderEntityList.add(limitOrder);
+        }
+        List<Long> orderIds = exOrderDao.batchInsert(exOrderEntityList, orderTable);
+        log.info("finish create test orders, size={}", orderIds.size());
+
+        List<ExOrderEntity> userOrders = exOrderDao.findByUserIdAndStatus(chainupId, OrderStatus.PENDING_CANCEL, orderTable);
+        StreamObserver<TransferResponse> responseObserver = build();
+        List<TransferRequest> requests = new ArrayList<>();
+        List<CancelOrderEventDto> events = new ArrayList<>();
+        for (ExOrderEntity order : userOrders) {
+            Long orderId = order.getId();
+            TransferRequest request = TransferRequest.newBuilder()
+                    .setFromUid(chainupId).setFromType(fromType).setToUid(chainupId).setToType(toType)
+                    .setAmount(lockAmount.toPlainString()).setScene(TransactionScene.CREATE_ORDER.value).setMeta("0")
+                    .setRefType(orderTable).setRefId(orderId).setOpUid(chainupId).setOpIp(StringUtils.EMPTY)
+                    .build();
+            requests.add(request);
+
+            CancelOrderEventDto cancelOrderEvent = CancelOrderEventDto.builder().pair(pair).chainupId(chainupId)
+                    .orderId(orderId).orderType(OrderLeverType.NORMAL_ORDER).build();
+            events.add(cancelOrderEvent);
+        }
+        TransferListRequest listRequest = TransferListRequest.newBuilder().addAllRequests(requests).setRequestId(UUIDv7Generator.generate()).build();
+        transferGrpcService.transfer(listRequest, responseObserver);
+
+        log.info("start to send cancel event");
+        for (CancelOrderEventDto event : events) {
+            cancelKafkaTemplate.send(cancelEventTopic, orderTable, event);
         }
     }
 

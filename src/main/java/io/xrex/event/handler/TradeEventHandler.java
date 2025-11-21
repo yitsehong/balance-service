@@ -69,15 +69,11 @@ public class TradeEventHandler {
                 CancelOrderIdDto key = new CancelOrderIdDto(event.getChainupId(), event.getPair(), event.getOrderType());
                 userPairCancelOrderIds.computeIfAbsent(key, _ -> new ArrayList<>()).add(event.getOrderId());
             }
+            log.info("Cancel order events received: {}", userPairCancelOrderIds);
 
             for (Map.Entry<CancelOrderIdDto, List<Long>> entry : userPairCancelOrderIds.entrySet()) {
                 tradeTransferService.handleCancelOrderTransfer(entry.getKey(), entry.getValue());
             }
-        } catch (Exception e) {
-            // Log the error for the specific mini-batch and continue with the next
-            // This enhances resilience, preventing one bad batch from stopping the entire poll.
-            log.error("Failed to process persisted. Error: {}", e.getMessage(), e);
-            // TODO: Consider sending the failed mini-batch to a dead-letter queue for manual inspection.
         } finally {
             acknowledgment.acknowledge();
         }

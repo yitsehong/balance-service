@@ -256,9 +256,18 @@ public class ExOrderDao {
 
     public int batchUpdateCancelStatus(List<Long> ids, OrderStatus newStatus, String tableName) {
         isValidTableName(tableName);
+        if (ids == null || ids.isEmpty()) {
+            return 0;
+        }
         String inClause = String.join(",", java.util.Collections.nCopies(ids.size(), "?"));
         String sql = "UPDATE " + tableName + " SET status = ?, mtime = ? WHERE id IN (" + inClause + ") AND status = 5";
-        return jdbcTemplate.update(sql, newStatus.value, Timestamp.valueOf(java.time.LocalDateTime.now()), ids.toArray());
+
+        List<Object> params = new ArrayList<>();
+        params.add(newStatus.value);
+        params.add(Timestamp.valueOf(java.time.LocalDateTime.now()));
+        params.addAll(ids);
+
+        return jdbcTemplate.update(sql, params.toArray());
     }
 
     private void isValidTableName(String tableName) {

@@ -63,12 +63,19 @@ public class TradeTransferService {
     }
 
     public void handleCancelOrderTransfer(CancelOrderIdDto cancelOrderId, List<Long> cancelOrderIds) {
-        PairConfigDto pairConfig = configService.findPairConfigByPair(cancelOrderId.pair());
-        List<TransferRequest> requests = exOrderTradeService.handleCancelOrder(cancelOrderId, cancelOrderIds, pairConfig);
-        if (!requests.isEmpty()) {
-            TransferListRequest transferListRequest = TransferListRequest.newBuilder().addAllRequests(requests).setRequestId(UUIDv7Generator.generate()).build();
-            StreamObserver<TransferResponse> responseObserver = buildResponseObserver();
-            transferGrpcService.transfer(transferListRequest, responseObserver);
+        try {
+            PairConfigDto pairConfig = configService.findPairConfigByPair(cancelOrderId.pair());
+            List<TransferRequest> requests = exOrderTradeService.handleCancelOrder(cancelOrderId, cancelOrderIds, pairConfig);
+            if (!requests.isEmpty()) {
+                TransferListRequest transferListRequest = TransferListRequest.newBuilder().addAllRequests(requests).setRequestId(UUIDv7Generator.generate()).build();
+                StreamObserver<TransferResponse> responseObserver = buildResponseObserver();
+                transferGrpcService.transfer(transferListRequest, responseObserver);
+            }
+        } catch (Exception e) {
+            // Log the error for the specific mini-batch and continue with the next
+            // This enhances resilience, preventing one bad batch from stopping the entire poll.
+            log.error("Failed to process persisted. Error: {}", e.getMessage(), e);
+            // TODO: Consider sending the failed mini-batch to a dead-letter queue for manual inspection.
         }
     }
 

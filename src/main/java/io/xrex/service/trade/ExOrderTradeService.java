@@ -174,6 +174,10 @@ public class ExOrderTradeService {
 
         OrderStatus status = exOrder.isFilled(pairConfig) ? OrderStatus.FILLED : OrderStatus.PART_FILLED;
         exOrder.setStatus(status);
+
+        if (exOrder.getSource() == null) {
+            exOrder.setSource(OrderSourceType.WEB);
+        }
         updateExOrderEntityList.add(exOrder);
     }
 
