@@ -15,7 +15,7 @@ import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory;
 import org.springframework.kafka.core.DefaultKafkaConsumerFactory;
 import org.springframework.kafka.listener.ContainerProperties;
 import org.springframework.kafka.listener.DefaultErrorHandler;
-import org.springframework.kafka.support.serializer.JsonDeserializer;
+import org.springframework.kafka.support.serializer.JacksonJsonDeserializer;
 import org.springframework.util.backoff.FixedBackOff;
 
 import java.util.HashMap;
@@ -42,7 +42,7 @@ public class KafkaConsumerConfig {
     @Bean
     public ConcurrentKafkaListenerContainerFactory<String, TransactionEventDto> transferPersistenceEventFactory() {
         Map<String, Object> props = buildCommonProperties();
-        props.put(JsonDeserializer.VALUE_DEFAULT_TYPE, TransactionEventDto.class.getName());
+        props.put(JacksonJsonDeserializer.VALUE_DEFAULT_TYPE, TransactionEventDto.class.getName());
         props.put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, transferPersistenceEventMaxPollRecords);
 
         ConcurrentKafkaListenerContainerFactory<String, TransactionEventDto> factory = new ConcurrentKafkaListenerContainerFactory<>();
@@ -56,7 +56,7 @@ public class KafkaConsumerConfig {
     @Bean
     public ConcurrentKafkaListenerContainerFactory<String, TradeEventDto> tradeEventFactory() {
         Map<String, Object> props = buildCommonProperties();
-        props.put(JsonDeserializer.VALUE_DEFAULT_TYPE, TradeEventDto.class.getName());
+        props.put(JacksonJsonDeserializer.VALUE_DEFAULT_TYPE, TradeEventDto.class.getName());
         props.put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, tradeEventMaxPollRecords);
 
         ConcurrentKafkaListenerContainerFactory<String, TradeEventDto> factory = new ConcurrentKafkaListenerContainerFactory<>();
@@ -70,7 +70,7 @@ public class KafkaConsumerConfig {
     @Bean
     public ConcurrentKafkaListenerContainerFactory<String, CancelOrderEventDto> cancelOrderEventFactory() {
         Map<String, Object> props = buildCommonProperties();
-        props.put(JsonDeserializer.VALUE_DEFAULT_TYPE, CancelOrderEventDto.class.getName());
+        props.put(JacksonJsonDeserializer.VALUE_DEFAULT_TYPE, CancelOrderEventDto.class.getName());
         props.put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, cancelOrderEventMaxPollRecords);
 
         ConcurrentKafkaListenerContainerFactory<String, CancelOrderEventDto> factory = new ConcurrentKafkaListenerContainerFactory<>();
@@ -85,10 +85,10 @@ public class KafkaConsumerConfig {
         Map<String, Object> props = new HashMap<>();
         props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
         props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
-        props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, JsonDeserializer.class);
-        props.put(JsonDeserializer.TRUSTED_PACKAGES, "io.xrex.dto.event");
-        props.put(JsonDeserializer.USE_TYPE_INFO_HEADERS, true);
-        props.put(JsonDeserializer.REMOVE_TYPE_INFO_HEADERS, false);
+        props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, JacksonJsonDeserializer.class);
+        props.put(JacksonJsonDeserializer.TRUSTED_PACKAGES, "io.xrex.dto.event");
+        props.put(JacksonJsonDeserializer.USE_TYPE_INFO_HEADERS, true);
+        props.put(JacksonJsonDeserializer.REMOVE_TYPE_INFO_HEADERS, false);
 
         props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
         props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);

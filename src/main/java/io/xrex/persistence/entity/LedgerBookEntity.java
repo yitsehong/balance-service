@@ -1,6 +1,8 @@
 package io.xrex.persistence.entity;
 
 import com.fasterxml.jackson.annotation.JsonFormat;
+import com.fasterxml.jackson.databind.PropertyNamingStrategies;
+import com.fasterxml.jackson.databind.annotation.JsonNaming;
 import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 import io.xrex.util.BigDecimalToStringSerializer;
 import io.xrex.util.XrexConstant;
@@ -23,6 +25,7 @@ import java.time.LocalDateTime;
 @NoArgsConstructor
 @Table(name = "ledger_book")
 @IdClass(LedgerBookId.class)
+@JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
 public class LedgerBookEntity {
     @Id
     private String idempotencyKey;

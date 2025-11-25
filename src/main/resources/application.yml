@@ -46,7 +46,6 @@ spring:
         dialect: org.hibernate.dialect.MySQLDialect
         format_sql: true
         physical_naming_strategy: org.hibernate.boot.model.naming.CamelCaseToUnderscoresNamingStrategy
-        implicit_naming_strategy: org.springframework.boot.orm.jpa.hibernate.SpringImplicitNamingStrategy
         enable_lazy_load_no_trans: true
         jdbc:
           time_zone: UTC

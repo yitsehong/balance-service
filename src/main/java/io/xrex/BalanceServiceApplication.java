@@ -2,10 +2,11 @@ package io.xrex;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
-import org.springframework.retry.annotation.EnableRetry;
+
+import org.springframework.kafka.annotation.EnableKafka;
 import org.springframework.scheduling.annotation.EnableAsync;
 
-@EnableRetry
+@EnableKafka
 @EnableAsync
 @SpringBootApplication
 public class BalanceServiceApplication {

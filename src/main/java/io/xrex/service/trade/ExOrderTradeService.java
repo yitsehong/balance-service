@@ -21,8 +21,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.tuple.Pair;
 import org.springframework.dao.TransientDataAccessException;
-import org.springframework.retry.annotation.Backoff;
-import org.springframework.retry.annotation.Retryable;
+import org.springframework.resilience.annotation.Retryable;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
@@ -47,7 +46,7 @@ public class ExOrderTradeService {
     private final ExTradeDao exTradeDao;
     private final ConfigAccountTypeRepository configAccountTypeRepository;
 
-    @Retryable(retryFor = {TransientDataAccessException.class}, backoff = @Backoff(delay = 500, random = true, multiplier = 2, maxDelay = 3000), listeners = "retryLoggingListener")
+    @Retryable(includes = {TransientDataAccessException.class}, delay = 500, multiplier = 2, maxDelay = 3000)
     @Transactional(isolation = Isolation.READ_COMMITTED)
     public List<ExTradeEntity> updateExOrderByExTrade(List<ExTradeDto> exTrades, Map<Long, ExOrderEntity> exOrderEntityMap, PairConfigDto pairConfig) {
         List<ExTradeEntity> insertExTradeEntityList = new ArrayList<>();
@@ -70,14 +69,14 @@ public class ExOrderTradeService {
     }
 
     @Async
-    @Retryable(retryFor = {TransientDataAccessException.class}, backoff = @Backoff(delay = 500, random = true, multiplier = 2, maxDelay = 3000), listeners = "retryLoggingListener")
+    @Retryable(includes = {TransientDataAccessException.class}, delay = 500, multiplier = 2, maxDelay = 3000)
     @Transactional
     public void handleRemainOrder(ExOrderEntity bid, ExOrderEntity ask, PairConfigDto pairConfig, StreamObserver<TransferResponse> responseObserver) {
         handleRemainMoney(bid, pairConfig, responseObserver);
         handleRemainMoney(ask, pairConfig, responseObserver);
     }
 
-    @Retryable(retryFor = {TransientDataAccessException.class}, backoff = @Backoff(delay = 500, random = true, multiplier = 2, maxDelay = 3000), listeners = "retryLoggingListener")
+    @Retryable(includes = {TransientDataAccessException.class}, delay = 500, multiplier = 2, maxDelay = 3000)
     @Transactional
     public List<TransferRequest> handleCancelOrder(CancelOrderIdDto cancelOrderId, List<Long> cancelOrderIds, PairConfigDto pairConfig) {
         List<ExOrderEntity> exOrders = exOrderDao.findPendingCancelByIdIn(cancelOrderIds, pairConfig.getOrderTable());
