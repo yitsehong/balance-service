@@ -14,6 +14,9 @@ spring:
     name: balance-service
   lifecycle:
     timeout-per-shutdown-phase: 30s
+  threads:
+    virtual:
+      enabled: true
   datasource:
     # Replace with your MySQL connection details
     url: jdbc:mysql://localhost:13306/exchange?characterEncoding=utf-8&zeroDateTimeBehavior=convertToNull&autoReconnect=true&rewriteBatchedStatements=true&allowMultiQueries=true&useSSL=false
@@ -106,3 +109,19 @@ raft:
       max-size: 4
       queue-capacity: 10000
 
+management:
+  endpoint:
+    health:
+      show-details: always
+  endpoints:
+    web:
+      exposure:
+        include: health, info, prometheus, threaddump
+      base-path: /internal/actuator
+  prometheus:
+    metrics:
+      export:
+        enabled: true
+  metrics:
+    tags:
+      application: balance-service
