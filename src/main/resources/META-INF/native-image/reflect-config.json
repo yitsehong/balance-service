@@ -1,0 +1,60 @@
+[
+  {
+    "name": "org.apache.ratis.grpc.GrpcFactory",
+    "methods": [
+      {"name": "<init>", "parameterTypes": ["org.apache.ratis.conf.Parameters"]}
+    ]
+  },
+  {
+    "name": "org.apache.ratis.thirdparty.io.netty.buffer.AbstractByteBufAllocator",
+    "methods": [
+      {
+        "name": "toLeakAwareBuffer",
+        "parameterTypes": ["org.apache.ratis.thirdparty.io.netty.buffer.ByteBuf"]
+      }
+    ]
+  },
+  {
+    "name": "org.apache.ratis.thirdparty.io.netty.buffer.AdvancedLeakAwareByteBuf",
+    "methods": [
+        { "name": "touch", "parameterTypes": [] },
+        { "name": "touch", "parameterTypes": ["java.lang.Object"] }
+    ]
+  },
+  {
+    "name": "org.apache.ratis.thirdparty.io.netty.buffer.SimpleLeakAwareByteBuf",
+    "methods": [
+        { "name": "touch", "parameterTypes": [] },
+        { "name": "touch", "parameterTypes": ["java.lang.Object"] }
+    ]
+  },
+  {
+    "name": "org.apache.ratis.server.impl.ServerImplUtils",
+    "methods": [
+      {
+        "name": "newRaftServer",
+        "parameterTypes": [
+          "org.apache.ratis.protocol.RaftPeerId",
+          "org.apache.ratis.protocol.RaftGroup",
+          "org.apache.ratis.server.storage.RaftStorage$StartupOption",
+          "org.apache.ratis.statemachine.StateMachine$Registry",
+          "java.lang.ThreadGroup",
+          "org.apache.ratis.conf.RaftProperties",
+          "org.apache.ratis.conf.Parameters"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "org.apache.ratis.server.DisabledDataStreamServerFactory",
+    "methods": [
+        { "name": "<init>", "parameterTypes": ["org.apache.ratis.conf.Parameters"] }
+    ]
+  },
+  {
+    "name": "org.apache.kafka.common.security.oauthbearer.DefaultJwtValidator",
+    "methods": [
+        { "name": "<init>", "parameterTypes": [] }
+    ]
+  }
+]
