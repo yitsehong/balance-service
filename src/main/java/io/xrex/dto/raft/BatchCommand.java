@@ -11,11 +11,13 @@ import java.util.List;
  * processed together as a single entry in the Raft log.
  */
 @Getter
+@lombok.Setter
+@lombok.NoArgsConstructor
 public class BatchCommand extends RaftCommand {
     private static final long serialVersionUID = 1L;
 
     /** The list of transaction events in this batch. */
-    private final List<TransactionEventDto> events;
+    private List<TransactionEventDto> events;
 
     /**
      * Constructs a new BatchCommand.

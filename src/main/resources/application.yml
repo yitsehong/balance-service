@@ -103,6 +103,11 @@ raft:
   group:
     id: "3f0d6d49-54a7-4161-9f8c-27a8563312c7"
   port: 8886
+  # Force using Nio for gRPC to avoid Epoll dependency issues in native image on non-Linux
+  grpc:
+    server:
+      port: 9090
+      reflection-service-enabled: true
   batch-processor:
     thread-pool:
       core-size: 2

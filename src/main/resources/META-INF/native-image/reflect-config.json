@@ -29,6 +29,16 @@
     ]
   },
   {
+    "name": "org.apache.ratis.thirdparty.io.netty.channel.socket.nio.NioSocketChannel",
+    "allDeclaredConstructors": true
+  },
+  {
+    "name": "org.apache.ratis.thirdparty.io.netty.util.ReferenceCountUtil",
+    "allDeclaredMethods": true,
+    "allDeclaredFields": true,
+    "allDeclaredConstructors": true
+  },
+  {
     "name": "org.apache.ratis.server.impl.ServerImplUtils",
     "methods": [
       {
@@ -52,9 +62,330 @@
     ]
   },
   {
+    "name": "org.apache.ratis.statemachine.impl.TransactionContextImpl",
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "org.apache.ratis.thirdparty.io.grpc.netty.NettyServerHandler",
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "org.apache.ratis.thirdparty.io.netty.bootstrap.ServerBootstrap$ServerBootstrapAcceptor",
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "org.apache.ratis.thirdparty.io.netty.bootstrap.ServerBootstrap$1",
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "org.apache.ratis.thirdparty.io.netty.channel.DefaultChannelPipeline$HeadContext",
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "org.apache.ratis.thirdparty.io.netty.channel.DefaultChannelPipeline$TailContext",
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "java.nio.channels.spi.SelectorProvider",
+    "allDeclaredMethods": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "io.xrex.grpc.TransferResponse",
+    "allDeclaredMethods": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "io.xrex.grpc.TransferResponse$Builder",
+    "allDeclaredMethods": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "io.xrex.grpc.TransferData",
+    "allDeclaredMethods": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "io.xrex.grpc.TransferData$Builder",
+    "allDeclaredMethods": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "org.apache.ratis.thirdparty.io.grpc.census.InternalCensusTracingAccessor",
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "org.apache.ratis.thirdparty.io.grpc.census.InternalCensusStatsAccessor",
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true,
+    "allPublicMethods": true
+  },
+  {
     "name": "org.apache.kafka.common.security.oauthbearer.DefaultJwtValidator",
     "methods": [
         { "name": "<init>", "parameterTypes": [] }
     ]
+  },
+  {
+    "name": "net.jpountz.lz4.LZ4JavaSafeCompressor",
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true,
+    "allPublicMethods": true,
+    "allDeclaredFields": true
+  },
+  {
+    "name": "net.jpountz.lz4.LZ4HCJavaSafeCompressor",
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true,
+    "allPublicMethods": true,
+    "allDeclaredFields": true
+  },
+  {
+    "name": "net.jpountz.lz4.LZ4JavaSafeFastDecompressor",
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true,
+    "allPublicMethods": true,
+    "allDeclaredFields": true
+  },
+  {
+    "name": "net.jpountz.lz4.LZ4JavaSafeSafeDecompressor",
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true,
+    "allPublicMethods": true,
+    "allDeclaredFields": true
+  },
+  {
+    "name": "net.jpountz.lz4.LZ4Compressor",
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "net.jpountz.lz4.LZ4Factory",
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true,
+    "allPublicMethods": true,
+    "allDeclaredFields": true
+  },
+  {
+    "name": "net.jpountz.xxhash.XXHash32JavaSafe",
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true,
+    "allPublicMethods": true,
+    "allDeclaredFields": true
+  },
+  {
+    "name": "net.jpountz.xxhash.StreamingXXHash32JavaSafe$Factory",
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true,
+    "allPublicMethods": true,
+    "allDeclaredFields": true
+  },
+  {
+    "name": "net.jpountz.xxhash.XXHash64JavaSafe",
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true,
+    "allPublicMethods": true,
+    "allDeclaredFields": true
+  },
+  {
+    "name": "net.jpountz.xxhash.StreamingXXHash64JavaSafe$Factory",
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true,
+    "allPublicMethods": true,
+    "allDeclaredFields": true
+  },
+  {
+    "name": "io.xrex.dto.raft.RaftCommand",
+    "allDeclaredFields": true,
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "io.xrex.dto.raft.BatchCommand",
+    "allDeclaredFields": true,
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "io.xrex.dto.raft.QueryCommand",
+    "allDeclaredFields": true,
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "io.xrex.dto.AccountIdDto",
+    "allDeclaredFields": true,
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "io.xrex.dto.BalanceDto",
+    "allDeclaredFields": true,
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "io.xrex.dto.CancelOrderIdDto",
+    "allDeclaredFields": true,
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "io.xrex.dto.IdempotencyRecordDto",
+    "allDeclaredFields": true,
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "io.xrex.dto.PairConfigDto",
+    "allDeclaredFields": true,
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "io.xrex.dto.event.TransactionEventDto",
+    "allDeclaredFields": true,
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "io.xrex.dto.event.TransferRingBufferEvent",
+    "allDeclaredFields": true,
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "io.xrex.dto.event.CancelOrderEventDto",
+    "allDeclaredFields": true,
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "io.xrex.dto.event.ExTradeDto",
+    "allDeclaredFields": true,
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "io.xrex.dto.event.TradeEventDto",
+    "allDeclaredFields": true,
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "io.xrex.persistence.entity.LedgerBookEntity",
+    "allDeclaredFields": true,
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "io.xrex.persistence.entity.LedgerBookId",
+    "allDeclaredFields": true,
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "io.xrex.persistence.entity.AccountEntity",
+    "allDeclaredFields": true,
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "io.xrex.persistence.entity.ConfigAccountTypeEntity",
+    "allDeclaredFields": true,
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "io.xrex.persistence.entity.ConfigCoinSymbolEntity",
+    "allDeclaredFields": true,
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "io.xrex.persistence.entity.ConfigSymbolEntity",
+    "allDeclaredFields": true,
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "io.xrex.persistence.entity.ExOrderEntity",
+    "allDeclaredFields": true,
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "io.xrex.persistence.entity.ExTradeEntity",
+    "allDeclaredFields": true,
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "io.xrex.persistence.entity.TransactionEntity",
+    "allDeclaredFields": true,
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "io.xrex.enums.ReadConsistency",
+    "allDeclaredFields": true,
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "java.math.BigDecimal",
+    "allDeclaredFields": true,
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "org.apache.ratis.proto.RaftProtos$RaftClientRequestProto",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "org.apache.ratis.proto.RaftProtos$LogEntryProto",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "org.apache.ratis.proto.RaftProtos$StateMachineLogEntryProto",
+    "allDeclaredMethods": true
+  },
+  {
+    "name": "org.apache.ratis.proto.RaftProtos$RaftPeerProto",
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "org.apache.ratis.proto.RaftProtos$RaftPeerProto$Builder",
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "org.apache.ratis.proto.RaftProtos$RaftPeerRole",
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "org.apache.ratis.thirdparty.io.netty.channel.epoll.Epoll",
+    "allDeclaredConstructors": true,
+    "allDeclaredMethods": true,
+    "allPublicMethods": true
   }
 ]

@@ -10,13 +10,15 @@ import lombok.Getter;
  * and the desired level of read consistency.
  */
 @Getter
+@lombok.Setter
+@lombok.NoArgsConstructor
 public class QueryCommand extends RaftCommand {
     private static final long serialVersionUID = 1L;
 
     /** The ID of the account to be queried. */
-    private final AccountIdDto accountId;
+    private AccountIdDto accountId;
     /** The desired level of read consistency for the query. */
-    private final ReadConsistency readConsistency;
+    private ReadConsistency readConsistency;
 
     /**
      * Constructs a new QueryCommand.

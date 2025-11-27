@@ -131,46 +131,79 @@ public class BalanceStateMachine extends BaseStateMachine {
      */
     @Override
     public CompletableFuture<Message> applyTransaction(TransactionContext trx) {
-        final byte[] logData = trx.getStateMachineLogEntry().getLogData().toByteArray();
-        final BatchCommand command = JSON.parseObject(logData, BatchCommand.class);
+        try {
+            final byte[] logData = trx.getStateMachineLogEntry().getLogData().toByteArray();
+            final BatchCommand command = JSON.parseObject(logData, BatchCommand.class);
 
-        final String clientId = command.getClientId();
-        final long sequenceId = command.getSequenceId();
+            if (command == null) {
+                log.error("[BalanceStateMachine] Failed to deserialize BatchCommand. JSON data might be invalid or reflection config missing.");
+                return CompletableFuture.completedFuture(Message.valueOf("Deserialization Error"));
+            }
 
-        if (isDuplicate(clientId, sequenceId)) {
-            log.error("[BalanceStateMachine] Duplicate request detected. ClientId={}, SequenceId={}", clientId, sequenceId);
-            return CompletableFuture.completedFuture(Message.valueOf("Duplicate request"));
-        }
+            final String clientId = command.getClientId();
+            final long sequenceId = command.getSequenceId();
 
-        // 2. Modify the publishing logic: iterate through the DTO list and publish an event for each DTO
-        for (TransactionEventDto eventDto : command.getEvents()) {
-            try {
-                // Acquire a permit before publishing. This will block if the system is overloaded.
-                if (!inFlightRequestsSemaphore.tryAcquire(1, 10, TimeUnit.SECONDS)) {
-                    log.error("Timeout acquiring semaphore permit. System is overloaded. Rejecting transaction for transactionId: {}", eventDto.getTransactionId());
-                    // We can't easily fail just one part of a batch. Failing the whole batch.
-                    return CompletableFuture.completedFuture(Message.valueOf("System overloaded. Please try again later."));
+            if (isDuplicate(clientId, sequenceId)) {
+                log.error("[BalanceStateMachine] Duplicate request detected. ClientId={}, SequenceId={}", clientId, sequenceId);
+                return CompletableFuture.completedFuture(Message.valueOf("Duplicate request"));
+            }
+
+            if (command.getEvents() == null) {
+                log.error("[BalanceStateMachine] BatchCommand events list is null. ClientId={}, SequenceId={}", clientId, sequenceId);
+                return CompletableFuture.completedFuture(Message.valueOf("Invalid Command: events is null"));
+            }
+
+            // 2. Modify the publishing logic: iterate through the DTO list and publish an event for each DTO
+            for (TransactionEventDto eventDto : command.getEvents()) {
+                try {
+                    // Acquire a permit before publishing. This will block if the system is overloaded.
+                    if (!inFlightRequestsSemaphore.tryAcquire(1, 10, TimeUnit.SECONDS)) {
+                        log.error("Timeout acquiring semaphore permit. System is overloaded. Rejecting transaction for transactionId: {}", eventDto.getTransactionId());
+                        // We can't easily fail just one part of a batch. Failing the whole batch.
+                        return CompletableFuture.completedFuture(Message.valueOf("System overloaded. Please try again later."));
+                    }
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    log.error("Interrupted while waiting for semaphore permit. Rejecting transaction.", e);
+                    return CompletableFuture.completedFuture(Message.valueOf("Transaction interrupted."));
                 }
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                log.error("Interrupted while waiting for semaphore permit. Rejecting transaction.", e);
-                return CompletableFuture.completedFuture(Message.valueOf("Transaction interrupted."));
-            }
 
-            String coinSymbol = eventDto.getFrom().getCoinSymbol();
-            RingBuffer<TransferRingBufferEvent> ringBuffer = disruptorPartitionManager.getRingBuffer(coinSymbol);
-            if (ringBuffer != null) {
-                ringBuffer.publishEvent(TRANSACTION_EVENT_TRANSLATOR, eventDto);
-            } else {
-                // If there's no ring buffer, we must release the permit we just acquired.
-                inFlightRequestsSemaphore.release();
-                log.error("No ring buffer found for coin symbol: {}. Releasing permit.", coinSymbol);
-                // Handle error: maybe push to a default queue or reject the transaction
+                if (eventDto == null) {
+                     log.warn("[BalanceStateMachine] Encountered null eventDto in batch. Skipping.");
+                     inFlightRequestsSemaphore.release();
+                     continue;
+                }
+
+                if (eventDto.getFrom() == null) {
+                     log.error("[BalanceStateMachine] eventDto.getFrom() is null. TransactionId={}", eventDto.getTransactionId());
+                     inFlightRequestsSemaphore.release();
+                     continue; // Or fail the batch
+                }
+
+                String coinSymbol = eventDto.getFrom().getCoinSymbol();
+                if (coinSymbol == null) {
+                    log.error("[BalanceStateMachine] Coin symbol is null. TransactionId={}", eventDto.getTransactionId());
+                    inFlightRequestsSemaphore.release();
+                    continue;
+                }
+                
+                RingBuffer<TransferRingBufferEvent> ringBuffer = disruptorPartitionManager.getRingBuffer(coinSymbol);
+                if (ringBuffer != null) {
+                    ringBuffer.publishEvent(TRANSACTION_EVENT_TRANSLATOR, eventDto);
+                } else {
+                    // If there's no ring buffer, we must release the permit we just acquired.
+                    inFlightRequestsSemaphore.release();
+                    log.error("No ring buffer found for coin symbol: {}. Releasing permit.", coinSymbol);
+                    // Handle error: maybe push to a default queue or reject the transaction
+                }
             }
+            clientSequenceIds.put(clientId, sequenceId);
+            log.debug("[BalanceStateMachine] {} events applyTransaction END. Returning OK to Raft framework.", command.getEvents().size());
+            return CompletableFuture.completedFuture(Message.valueOf("OK"));
+        } catch (Exception e) {
+            log.error("[BalanceStateMachine] Unexpected error in applyTransaction.", e);
+            return CompletableFuture.completedFuture(Message.valueOf("Internal Server Error: " + e.getMessage()));
         }
-        clientSequenceIds.put(clientId, sequenceId);
-        log.debug("[BalanceStateMachine] {} events applyTransaction END. Returning OK to Raft framework.", command.getEvents().size());
-        return CompletableFuture.completedFuture(Message.valueOf("OK"));
     }
 
     /**

@@ -146,6 +146,31 @@ graalvmNative {
             buildArgs.add('-H:IncludeResources=.*librocksdbjni.*')
             // JCTools queues (shaded in Ratis) need build-time initialization
             buildArgs.add('--initialize-at-build-time=org.apache.ratis.thirdparty.io.netty.util.internal.shaded.org.jctools.queues')
+            
+            // Netty Epoll & Unix (macOS build fix attempt)
+            // Trying to force build-time init to see if we can control it, 
+            // or we need to be more aggressive with runtime init.
+            buildArgs.add('--initialize-at-build-time=org.apache.ratis.thirdparty.io.netty.channel.epoll.Epoll') 
+            
+            // buildArgs.add('--initialize-at-run-time=org.apache.ratis.thirdparty.io.netty.channel.epoll.Native')
+            buildArgs.add('--initialize-at-run-time=org.apache.ratis.thirdparty.io.netty.channel.epoll.EpollEventLoop')
+            buildArgs.add('--initialize-at-run-time=org.apache.ratis.thirdparty.io.netty.channel.epoll.EpollEventArray')
+            buildArgs.add('--initialize-at-run-time=org.apache.ratis.thirdparty.io.netty.channel.unix.Limits')
+            buildArgs.add('--initialize-at-run-time=org.apache.ratis.thirdparty.io.netty.channel.unix.Errors')
+            buildArgs.add('--initialize-at-run-time=org.apache.ratis.thirdparty.io.netty.channel.unix.IovArray')
+            
+            // Ratis gRPC internal classes - Force build time init to bake in "Epoll=false" on macOS
+            buildArgs.add('--initialize-at-build-time=org.apache.ratis.thirdparty.io.grpc.netty.Utils')
+            
+            // Netty AsciiString needs build-time init as its instances are in the image heap
+            buildArgs.add('--initialize-at-build-time=org.apache.ratis.thirdparty.io.netty.util.AsciiString')
+            buildArgs.add('--initialize-at-build-time=org.apache.ratis.thirdparty.io.netty.util.AsciiString$1')
+            buildArgs.add('--initialize-at-build-time=org.apache.ratis.thirdparty.io.netty.util.AsciiString$2')
+            
+            // Ratis gRPC Utils anonymous inner classes
+            buildArgs.add('--initialize-at-build-time=org.apache.ratis.thirdparty.io.grpc.netty.Utils$1')
+            buildArgs.add('--initialize-at-build-time=org.apache.ratis.thirdparty.io.grpc.netty.Utils$DefaultEventLoopGroupResource')
+            buildArgs.add('--initialize-at-build-time=org.apache.ratis.thirdparty.io.grpc.netty.Utils$EventLoopGroupType')
         }
     }
 }

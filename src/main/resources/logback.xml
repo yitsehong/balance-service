@@ -56,7 +56,7 @@
     <logger name="io.netty" level="INFO"/>
     <logger name="org.apache.kafka" level="INFO"/>
     <!-- Add this to see detailed Raft server logs -->
-    <logger name="org.apache.ratis" level="INFO"/>
+    <logger name="org.apache.ratis" level="DEBUG"/>
     <!-- show SQL with properties spring.jpa.properties.hibernate.format_sql=true -->
     <!-- <logger name="org.hibernate.SQL" level="DEBUG" />-->
 

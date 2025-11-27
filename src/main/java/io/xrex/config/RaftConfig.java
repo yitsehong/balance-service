@@ -56,6 +56,7 @@ public class RaftConfig {
     }
 
     @Bean(destroyMethod = "close")
+    @org.springframework.context.annotation.DependsOn("raftServer")
     public CustomRaftClient raftClient(RaftGroup raftGroup) {
         return new CustomRaftClient(raftGroup);
     }

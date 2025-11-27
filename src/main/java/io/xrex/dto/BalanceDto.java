@@ -8,11 +8,11 @@ import java.math.BigDecimal;
 /**
  * Represents a user's balance in the in-memory store.
  */
+@lombok.Data
+@lombok.NoArgsConstructor
 public class BalanceDto {
 
-    private final AccountIdDto accountIdDto;
-    @Setter
-    @Getter
+    private AccountIdDto accountIdDto;
     private BigDecimal amount;
 
     public BalanceDto(AccountIdDto accountIdDto, BigDecimal initialAmount) {

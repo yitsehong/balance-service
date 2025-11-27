@@ -1,8 +1,8 @@
 package io.xrex.controller;
 
 
-import io.xrex.enums.ErrorCodes;
 import io.xrex.controller.exception.RestApiException;
+import io.xrex.enums.ErrorCodes;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.http.HttpHeaders;
@@ -27,7 +27,7 @@ public class GlobalExceptionHandler {
      * Handle app exception and children
      */
     @ExceptionHandler({RestApiException.class})
-    public ResponseEntity<RestApiResponse<?>> handleRestApiException(RestApiException exception) {
+    public ResponseEntity<RestApiResponse<Void>> handleRestApiException(RestApiException exception) {
         log.info("[handleRestApiException] error: {}", exception.toString(), exception);
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
@@ -35,7 +35,7 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
-    public ResponseEntity<RestApiResponse<?>> handleException(MethodArgumentNotValidException exception) {
+    public ResponseEntity<RestApiResponse<Map<String, String>>> handleException(MethodArgumentNotValidException exception) {
         log.error("RestController MethodArgumentNotValidException happens, errorMsg={}", exception.getMessage(), exception);
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
@@ -47,7 +47,7 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler({Exception.class})
-    public ResponseEntity<RestApiResponse<?>> handleException(Exception exception) {
+    public ResponseEntity<RestApiResponse<Void>> handleException(Exception exception) {
         log.warn("[handleException] error: ", exception);
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
@@ -55,7 +55,7 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler({MissingServletRequestParameterException.class})
-    public ResponseEntity<RestApiResponse<?>> handleMissingServletRequestParameterException(MissingServletRequestParameterException exception) {
+    public ResponseEntity<RestApiResponse<Void>> handleMissingServletRequestParameterException(MissingServletRequestParameterException exception) {
         log.warn("[handleMissingServletRequestParameterException] error: {}", exception.getMessage());
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
@@ -63,7 +63,7 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler({HttpMessageNotReadableException.class})
-    public ResponseEntity<RestApiResponse<?>> handleHttpMessageNotReadableException(HttpMessageNotReadableException exception) {
+    public ResponseEntity<RestApiResponse<Void>> handleHttpMessageNotReadableException(HttpMessageNotReadableException exception) {
         log.warn("[handleHttpMessageNotReadableException] error: {}", exception.getMessage());
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);

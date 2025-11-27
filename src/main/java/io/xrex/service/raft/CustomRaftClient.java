@@ -38,8 +38,8 @@ public class CustomRaftClient {
 
     public CustomRaftClient(RaftGroup raftGroup) {
         final RaftProperties properties = new RaftProperties();
-        // Increase the request timeout to 15 seconds to allow for server warm-up.
-        RaftClientConfigKeys.Rpc.setRequestTimeout(properties, TimeDuration.valueOf(15, TimeUnit.SECONDS));
+        // Increase the request timeout to 30 seconds to allow for server warm-up.
+        RaftClientConfigKeys.Rpc.setRequestTimeout(properties, TimeDuration.valueOf(30, TimeUnit.SECONDS));
 
         this.client = RaftClient.newBuilder()
                 .setProperties(properties)
