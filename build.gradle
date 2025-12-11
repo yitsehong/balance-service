@@ -131,6 +131,7 @@ graalvmNative {
             buildArgs.add("-O2") 
 
             buildArgs.add('--verbose')
+            buildArgs.add("-H:ReflectionConfigurationFiles=/workspace/src/main/resources/META-INF/native-image/reflect-config.json")
             buildArgs.add('--initialize-at-build-time=ch.qos.logback.classic')
             buildArgs.add('--initialize-at-build-time=ch.qos.logback.core')
             buildArgs.add('--initialize-at-build-time=org.slf4j')
@@ -153,6 +154,7 @@ graalvmNative {
             // Trying to force build-time init to see if we can control it, 
             // or we need to be more aggressive with runtime init.
             buildArgs.add('--initialize-at-build-time=org.apache.ratis.thirdparty.io.netty.channel.epoll.Epoll') 
+            buildArgs.add('--initialize-at-build-time=org.apache.ratis.thirdparty.io.netty.channel.ReflectiveChannelFactory')
             
             // buildArgs.add('--initialize-at-run-time=org.apache.ratis.thirdparty.io.netty.channel.epoll.Native')
             buildArgs.add('--initialize-at-run-time=org.apache.ratis.thirdparty.io.netty.channel.epoll.EpollEventLoop')
