@@ -1,12 +1,12 @@
 server:
-  port: 8080
+  port: 8081
 
 # ===================================================================
 # = GRPC SERVER CONFIGURATION
 # ===================================================================
 grpc:
   server:
-    port: 9090
+    port: 9091
     reflection-service-enabled: true
 
 spring:
@@ -19,7 +19,7 @@ spring:
       enabled: true
   datasource:
     # Replace with your MySQL connection details
-    url: jdbc:mysql://localhost:13306/exchange?characterEncoding=utf-8&zeroDateTimeBehavior=convertToNull&autoReconnect=true&rewriteBatchedStatements=true&allowMultiQueries=true&useSSL=false
+    url: jdbc:mysql://localhost:3307/exchange?characterEncoding=utf-8&zeroDateTimeBehavior=convertToNull&autoReconnect=true&rewriteBatchedStatements=true&allowMultiQueries=true&useSSL=false
     username: exchange
     password: abcd1234
     driver-class-name: com.mysql.cj.jdbc.Driver

@@ -1,0 +1,24 @@
+FROM amazoncorretto:25-alpine AS build-source
+
+WORKDIR /workspace
+COPY gradlew gradlew.bat settings.gradle* build.gradle* ./
+COPY gradle/wrapper ./gradle/wrapper
+RUN chmod +x gradlew
+COPY src ./src
+
+FROM ghcr.io/graalvm/native-image-community:25 AS native-build
+
+WORKDIR /workspace
+COPY --from=build-source /workspace /workspace
+
+#RUN ./gradlew nativeCompile
+#
+#FROM amazonlinux:2023
+#
+#WORKDIR /app
+#
+## adjust binary name/path as needed
+#COPY --from=native-build /workspace/build/native/nativeCompile/* balance-service
+#
+#EXPOSE 8080
+#ENTRYPOINT ["./balance-service"]
