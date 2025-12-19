@@ -1,10 +1,7 @@
 # ---- Build jar (JVM) ----
-FROM amazoncorretto:25 AS jvm-build
+FROM gradle:9-jdk25 AS jvm-build
 
 WORKDIR /workspace
-
-RUN dnf install -y findutils && dnf clean all || \
-    (yum install -y findutils && yum clean all)
 
 COPY gradlew gradlew.bat settings.gradle* build.gradle* ./
 COPY gradle/wrapper ./gradle/wrapper
