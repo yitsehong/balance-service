@@ -44,7 +44,7 @@ public class RaftConfig {
     @Bean
     public RaftGroup raftGroup() {
         final RaftPeer peer = RaftPeer.newBuilder()
-                .setId(raftId).setAddress("localhost:" + raftPort).build();
+                .setId(raftId).setAddress("http://127.0.0.1:" + raftPort).build();
         return RaftGroup.valueOf(RaftGroupId.valueOf(UUID.fromString(raftGroupId)), Collections.singletonList(peer));
     }
 
