@@ -23,4 +23,7 @@ COPY --from=native-build /workspace/build/native/nativeCompile/ ./
 RUN chmod +x balance-service
 
 EXPOSE 8080
+EXPOSE 8886
+EXPOSE 9090
+
 ENTRYPOINT ["./balance-service"]
