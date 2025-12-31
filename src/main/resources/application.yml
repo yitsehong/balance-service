@@ -102,6 +102,7 @@ raft:
   id: "n1"
   group:
     id: "3f0d6d49-54a7-4161-9f8c-27a8563312c7"
+    peers: "n1=127.0.0.1:8886"
   port: 8886
   # Force using Nio for gRPC to avoid Epoll dependency issues in native image on non-Linux
   grpc:

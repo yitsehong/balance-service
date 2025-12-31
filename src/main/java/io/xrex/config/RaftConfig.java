@@ -16,7 +16,9 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.kafka.core.KafkaTemplate;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.List;
 import java.util.UUID;
 
 @Configuration
@@ -36,6 +38,9 @@ public class RaftConfig {
     @Value("${raft.port}")
     private int raftPort;
 
+    @Value("${raft.group.peers}")
+    private String raftGroupPeers;
+
     @Bean
     public BalanceStateMachine raftStateMachine() {
         return new BalanceStateMachine(kafkaTemplate, configService, rocksDBService);
@@ -43,9 +48,15 @@ public class RaftConfig {
 
     @Bean
     public RaftGroup raftGroup() {
-        final RaftPeer peer = RaftPeer.newBuilder()
-                .setId(raftId).setAddress("http://127.0.0.1:" + raftPort).build();
-        return RaftGroup.valueOf(RaftGroupId.valueOf(UUID.fromString(raftGroupId)), Collections.singletonList(peer));
+        String[] peers = raftGroupPeers.split(",");
+        List<RaftPeer> raftPeers = new ArrayList<>();
+        for (String peer : peers) {
+            String[] parts = peer.split("=");
+            String peerId = parts[0];
+            String peerAddress = parts[1];
+            raftPeers.add(RaftPeer.newBuilder().setId(peerId).setAddress(peerAddress).build());
+        }
+        return RaftGroup.valueOf(RaftGroupId.valueOf(UUID.fromString(raftGroupId)), raftPeers);
     }
 
     @Bean(destroyMethod = "stop")
