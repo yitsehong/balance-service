@@ -51,6 +51,10 @@ public class CustomRaftServer {
 
         // Set the gRPC port
         GrpcConfigKeys.Server.setPort(properties, port);
+        // Force NIO to avoid Epoll EventLoopGroup creation failures
+        // Setting properties directly as specific setter methods might vary by Ratis version
+        properties.set("raft.grpc.server.use.epoll", "false");
+        properties.set("raft.grpc.client.use.epoll", "false");
 
         // Create the RaftPeer object
         final RaftPeer peer = RaftPeer.newBuilder()
