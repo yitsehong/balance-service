@@ -153,10 +153,11 @@ graalvmNative {
             // Netty Epoll & Unix (macOS build fix attempt)
             // Trying to force build-time init to see if we can control it, 
             // or we need to be more aggressive with runtime init.
-            buildArgs.add('--initialize-at-build-time=org.apache.ratis.thirdparty.io.netty.channel.epoll.Epoll') 
+            
             buildArgs.add('--initialize-at-build-time=org.apache.ratis.thirdparty.io.netty.channel.ReflectiveChannelFactory')
             
             // buildArgs.add('--initialize-at-run-time=org.apache.ratis.thirdparty.io.netty.channel.epoll.Native')
+            buildArgs.add('--initialize-at-run-time=org.apache.ratis.thirdparty.io.netty.channel.epoll.Epoll') 
             buildArgs.add('--initialize-at-run-time=org.apache.ratis.thirdparty.io.netty.channel.epoll.EpollEventLoop')
             buildArgs.add('--initialize-at-run-time=org.apache.ratis.thirdparty.io.netty.channel.epoll.EpollEventArray')
             buildArgs.add('--initialize-at-run-time=org.apache.ratis.thirdparty.io.netty.channel.unix.Limits')
