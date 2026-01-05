@@ -1,0 +1,105 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: balance-service-jvm-headless
+  namespace: fasterdev-test
+spec:
+  clusterIP: None
+  selector:
+    app: balance-service-jvm
+  ports:
+  - name: raft
+    port: 8886
+    targetPort: 8886
+  - name: grpc
+    port: 9090
+    targetPort: 9090
+  - name: web
+    port: 8080
+    targetPort: 8080
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  labels:
+    app: balance-service-jvm
+  name: balance-service-jvm
+  namespace: fasterdev-test
+spec:
+  serviceName: "balance-service-jvm-headless"
+  replicas: 3
+  selector:
+    matchLabels:
+      app: balance-service-jvm
+  template:
+    metadata:
+      labels:
+        app: balance-service-jvm
+    spec:
+      nodeSelector:
+        app: java
+      containers:
+      - name: balance-service
+        image: 594719381662.dkr.ecr.ap-northeast-1.amazonaws.com/balance-service:jvm-25
+        imagePullPolicy: Always
+        command: ["/bin/sh", "-c"]
+        # Extract ordinal from hostname (e.g., balance-service-jvm-0 -> 0) and prefix with 'n' for Raft ID
+        args:
+          - >-
+            export RAFT_ID=n${HOSTNAME##*-};
+            java -jar app.jar --spring.config.location=/opt/conf/application.yml
+        env:
+          - name: RAFT_GROUP_PEERS
+            # Define the full group using the headless service DNS
+            value: "n0=balance-service-jvm-0.balance-service-jvm-headless:8886,n1=balance-service-jvm-1.balance-service-jvm-headless:8886,n2=balance-service-jvm-2.balance-service-jvm-headless:8886"
+        ports:
+        - containerPort: 8080
+          name: web
+          protocol: TCP
+        - containerPort: 8886
+          name: raft
+          protocol: TCP
+        - containerPort: 9090
+          name: grpc
+          protocol: TCP
+        startupProbe:
+          failureThreshold: 30
+          periodSeconds: 10
+          httpGet:
+            path: /common/health
+            port: 8080
+        readinessProbe:
+          failureThreshold: 5
+          httpGet:
+            path: /common/health
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 5
+        livenessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /common/health
+            port: 8080
+          initialDelaySeconds: 120
+          periodSeconds: 5
+        resources:
+          limits:
+            cpu: 2000m 
+            memory: 4Gi
+          requests:
+            cpu: 2000m
+            memory: 4Gi
+        volumeMounts:
+        - mountPath: /opt/conf/application.yml
+          name: config
+          readOnly: true
+          subPath: application.yml
+      volumes:
+      - secret:
+          secretName: balance-service-secrets
+        name: config
+      tolerations:
+      - effect: NoSchedule
+        key: dedicated
+        operator: Equal
+        value: java-test

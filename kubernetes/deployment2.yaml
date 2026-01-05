@@ -1,0 +1,100 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: balance-service
+  name: balance-service
+  namespace: fasterdev-test
+spec:
+  progressDeadlineSeconds: 600
+  replicas: 1
+  selector:
+    matchLabels:
+      app: balance-service
+  template:
+    metadata:
+      labels:
+        app: balance-service
+        label: balance-service
+    spec:
+      nodeSelector:
+        app: java
+      containers:
+      - command: ["sleep"]
+        args: ["infinity"]
+        #args: ["--spring.config.location=/opt/conf/application.yml"]
+        image: 594719381662.dkr.ecr.ap-northeast-1.amazonaws.com/balance-service:graal-25
+        imagePullPolicy: Always
+        lifecycle:
+          preStop:
+            exec:
+              command:
+              - /bin/sh
+              - -c
+              - sleep 50
+        name: balance-service
+        ports:
+        - containerPort: 8080
+          name: web
+          protocol: TCP
+        - containerPort: 8886
+          name: raft
+          protocol: TCP
+        - containerPort: 9090
+          name: grpc
+          protocol: TCP
+        startupProbe:
+          failureThreshold: 30
+          periodSeconds: 10
+          httpGet:
+            path: /common/health
+            port: 8080
+            scheme: HTTP
+        readinessProbe:
+          failureThreshold: 5
+          httpGet:
+            path: /common/health
+            port: 8080
+            scheme: HTTP
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          successThreshold: 2
+          timeoutSeconds: 10
+        livenessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /common/health
+            port: 8080
+            scheme: HTTP
+          initialDelaySeconds: 120
+          periodSeconds: 5
+          successThreshold: 1
+          timeoutSeconds: 10
+        resources:
+          limits:
+            cpu: 500m
+            memory: 1Gi
+          requests:
+            cpu: 500m
+            memory: 1Gi
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /opt/conf/application.yml
+          name: config
+          readOnly: true
+          subPath: application.yml
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      serviceAccount: default
+      serviceAccountName: default
+      terminationGracePeriodSeconds: 60
+      tolerations:
+      - effect: NoSchedule
+        key: dedicated
+        operator: Equal
+        value: java-test
+      volumes:
+      - secret:
+          secretName: balance-service-secrets
+        name: config
